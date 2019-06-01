@@ -2,7 +2,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server where
+module Server
   ( Client
   , ServerState
   , Handler
@@ -10,7 +10,7 @@ module Server where
   , send
   , broadcast
   , start
-  )
+  ) where
 
 import Data.Monoid ((<>))
 import Data.Text (Text)
@@ -76,7 +76,7 @@ application handler state pending = do
               send ("Connected. Users: " <> T.intercalate ", " (map fst s)) client
               broadcast (fst client <> " joined") s'
               return s'
-            handleMessage handler client state
+            handleMessages handler client state
       where
         client =
           (name, conn)
@@ -89,8 +89,8 @@ application handler state pending = do
 type Handler
   = Text -> Client -> ServerState -> IO ()
 
-handleMessage :: Handler -> Client -> MVar ServerState -> IO ()
-handleMessage handler client state = forever $ do
+handleMessages :: Handler -> Client -> MVar ServerState -> IO ()
+handleMessages handler client state = forever $ do
   msg <- WS.receiveData (snd client)
   clients <- readMVar state
   handler msg client clients
