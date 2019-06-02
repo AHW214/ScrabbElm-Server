@@ -20,8 +20,15 @@ description:         Please see the README on GitHub at <https://github.com/AHW2
 
 dependencies:
 - base >= 4.7 && < 5
+- warp
+- wai
+- http-types
 - websockets
+- wai-websockets
 - aeson
+- random
+- bytestring
+- containers
 - text
 
 library:

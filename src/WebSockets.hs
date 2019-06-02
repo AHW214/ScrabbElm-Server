@@ -2,46 +2,56 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Server
+module WebSockets
   ( Client
   , ServerState
   , Handler
   , numClients
   , send
   , broadcast
-  , start
+  , initApp
+  , opts
+  , app
   ) where
 
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import qualified Data.Map.Strict as Map
 import Control.Exception (finally)
 import Control.Monad (forM_, forever)
 import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import Network.WebSockets.Connection (ConnectionOptions, defaultConnectionOptions)
 import qualified Network.WebSockets as WS
+import Tickets (Ticket)
 
 type Client
-  = ( Text, WS.Connection )
+  = (Text, WS.Connection)
 
 type ServerState
-  = [ Client ]
+  = Map.Map Ticket Client
 
 initServerState :: ServerState
-initServerState = []
+initServerState = Map.empty
 
 numClients :: ServerState -> Int
-numClients = length
+numClients = Map.size
 
-clientExists :: Client -> ServerState -> Bool
-clientExists (name, _) = any ((== name) . fst)
+clientExists :: Ticket -> ServerState -> Bool
+clientExists = Map.member
 
-addClient :: Client -> ServerState -> ServerState
-addClient = (:)
+addClient :: Ticket -> Client -> ServerState -> ServerState
+addClient = Map.insert
 
-removeClient :: Client -> ServerState -> ServerState
-removeClient (name, _) = filter ((/= name) . fst)
+removeClient :: Ticket -> ServerState -> ServerState
+removeClient = Map.delete
+
+close :: Text -> Client -> IO ()
+close message (name, conn) = do
+  T.putStrLn ("Disconnecting client '" <> name <> "'");
+  WS.sendClose conn message
 
 send :: Text -> Client -> IO ()
 send message (name, conn) = do
@@ -53,37 +63,42 @@ broadcast message clients = do
   T.putStrLn ("Broadcast: " <> "\"" <> message <> "\"")
   forM_ clients (flip WS.sendTextData message . snd)
 
-start :: String -> Int -> Handler -> IO ()
-start host port handler = do
-  state <- newMVar initServerState
-  WS.runServer host port $ application handler state
+opts :: ConnectionOptions
+opts = defaultConnectionOptions
 
-application :: Handler -> MVar ServerState -> WS.ServerApp
-application handler state pending = do
+initApp :: Handler -> MVar [ Ticket ] -> IO WS.ServerApp
+initApp handler tickets = do
+  state <- newMVar initServerState
+  return $ app handler tickets state
+
+app :: Handler -> MVar [ Ticket ] -> MVar ServerState -> WS.ServerApp
+app handler tickets state pending = do
   conn <- WS.acceptRequest pending
   WS.forkPingThread conn 30
 
-  name <- WS.receiveData conn
+  ticket <- WS.receiveData conn
   clients <- readMVar state
+  ts <- readMVar tickets
 
-  case name of
-    _ | clientExists client clients ->
-          send ("Username taken: '" <> name <> "'") client
+  case ticket of
+    _ | not $ elem ticket ts ->
+          close "Invalid authentication ticket..." client
       | otherwise ->
           flip finally disconnect $ do
+            modifyMVar_ tickets $ pure . filter ((/=) ticket)
             modifyMVar_ state $ \s -> do
-              let s' = addClient client s
-              send ("Connected. Users: " <> T.intercalate ", " (map fst s)) client
+              let s' = addClient ticket client s
+              send ("Connected. Users: " <> T.intercalate ", " (map fst $ Map.elems s)) client
               broadcast (fst client <> " joined") s'
               return s'
             handleMessages handler client state
       where
         client =
-          (name, conn)
+          ("NAME", conn)
 
         disconnect = do
           s <- modifyMVar state $ \s ->
-            let s' = removeClient client s in return (s', s')
+            let s' = removeClient ticket s in return (s', s')
           broadcast (fst client <> " disconnected") s
 
 type Handler
