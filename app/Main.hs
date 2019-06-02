@@ -9,6 +9,7 @@ import Data.Aeson (FromJSON, (.:), parseJSON, withObject, decodeStrict)
 import Control.Concurrent (newMVar)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
+import Network.Wai.Middleware.Cors (simpleCors)
 import Network.Wai.Handler.WebSockets (websocketsOr)
 import qualified Data.Text.IO as T
 
@@ -49,7 +50,7 @@ main = do
   Prelude.putStrLn ("Listening on port " ++ show port)
 
   tickets <- newMVar Tickets.empty
-  let rqApp = RQ.app tickets
+  let rqApp = simpleCors $ RQ.app tickets
   wsApp <- WS.initApp messageHandler tickets
 
   run port $ websocketsOr WS.opts wsApp rqApp
