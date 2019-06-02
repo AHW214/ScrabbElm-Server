@@ -28,6 +28,7 @@ dependencies:
 - websockets
 - aeson
 - random
+- random-shuffle
 - bytestring
 - containers
 - text

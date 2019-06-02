@@ -16,6 +16,8 @@ module WebSockets
 
 import Data.Monoid ((<>))
 import Data.Text (Text)
+import Data.Text.Lazy (toStrict)
+import Data.Text.Lazy.Encoding (decodeUtf8)
 import qualified Data.Map.Strict as Map
 import Control.Exception (finally)
 import Control.Monad (forM_, forever)
@@ -85,21 +87,18 @@ app handler tickets state pending = do
           close "Invalid authentication ticket..." client
       | otherwise ->
           flip finally disconnect $ do
+            T.putStrLn ("Client '" <> fst client <> "' joined")
             modifyMVar_ tickets $ pure . filter ((/=) ticket)
-            modifyMVar_ state $ \s -> do
-              let s' = addClient ticket client s
-              send ("Connected. Users: " <> T.intercalate ", " (map fst $ Map.elems s)) client
-              broadcast (fst client <> " joined") s'
-              return s'
+            modifyMVar_ state $ pure . addClient ticket client
             handleMessages handler client state
       where
         client =
-          ("NAME", conn)
+          (toStrict $ decodeUtf8 ticket, conn)
 
         disconnect = do
           s <- modifyMVar state $ \s ->
             let s' = removeClient ticket s in return (s', s')
-          broadcast (fst client <> " disconnected") s
+          T.putStrLn ("Client '" <> fst client <> "' disconnected")
 
 type Handler
   = Text -> Client -> ServerState -> IO ()
