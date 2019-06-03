@@ -3,6 +3,7 @@
 module Main where
 
 import Data.Monoid ((<>))
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text, pack)
 import Data.Text.Lazy (toStrict)
 import Data.Text.Encoding (encodeUtf8)
@@ -14,9 +15,9 @@ import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import Network.Wai.Middleware.Cors (simpleCors)
 import Network.Wai.Handler.WebSockets (websocketsOr)
-import qualified Data.Text.IO as T
-import System.Environment (getArgs) 
+import System.Environment (getArgs)
 import Text.Read (readMaybe)
+import qualified Data.Text.IO as T
 
 import qualified WebSockets as WS
 import qualified Requests as RQ
@@ -32,6 +33,9 @@ data Message
 instance FromJSON Message where
   parseJSON = withObject "Message" $ \v -> Message
     <$> v .: "eventType"
+
+defaultPort :: Int
+defaultPort = 3000
 
 events :: [ Event ]
 events =
@@ -62,19 +66,15 @@ messageHandler text client clients =
   where
     bagMsg bag = "{ \"eventType\": \"startGame\", \"data\": { \"bag\": " <> (toStrict $ decodeUtf8 $ encode bag) <> " } }"
 
+assignPort :: [ String ] -> Int
+assignPort args =
+  fromMaybe defaultPort (listToMaybe args >>= readMaybe)
+
 main :: IO ()
 main = do
-  args <- getArgs 
-  let port = case args of
-        [] ->
-          3000
-        p:_ -> 
-          case (readMaybe p) :: Maybe Int of
-            Nothing -> 
-              3000
-            Just x -> 
-              x
-  
+  args <- getArgs
+  let port = assignPort args
+
   Prelude.putStrLn ("Listening on port " ++ show port)
 
   tickets <- newMVar Tickets.empty

@@ -21,3 +21,4 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 ScrabbElm-Server.cabal
+build-and-send.sh
