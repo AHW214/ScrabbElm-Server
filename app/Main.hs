@@ -15,6 +15,8 @@ import Network.Wai.Handler.Warp (run)
 import Network.Wai.Middleware.Cors (simpleCors)
 import Network.Wai.Handler.WebSockets (websocketsOr)
 import qualified Data.Text.IO as T
+import System.Environment (getArgs) 
+import Text.Read (readMaybe)
 
 import qualified WebSockets as WS
 import qualified Requests as RQ
@@ -62,7 +64,17 @@ messageHandler text client clients =
 
 main :: IO ()
 main = do
-  let port = 3000
+  args <- getArgs 
+  let port = case args of
+        [] ->
+          3000
+        p:_ -> 
+          case (readMaybe p) :: Maybe Int of
+            Nothing -> 
+              3000
+            Just x -> 
+              x
+  
   Prelude.putStrLn ("Listening on port " ++ show port)
 
   tickets <- newMVar Tickets.empty
