@@ -5,7 +5,8 @@
 module WebSockets
   ( Client
   , ServerState
-  , Handler
+  , StartHandler
+  , MessageHandler
   , numClients
   , send
   , broadcast
@@ -18,7 +19,6 @@ import Data.Monoid ((<>))
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
 import Data.Text.Lazy.Encoding (decodeUtf8)
-import qualified Data.Map.Strict as Map
 import Control.Exception (finally)
 import Control.Monad (forM_, forever)
 import Control.Concurrent (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
@@ -33,22 +33,25 @@ type Client
   = (Text, WS.Connection)
 
 type ServerState
-  = Map.Map Ticket Client
+  = [ Client ]
+
+maxNumClients :: Int
+maxNumClients = 2
 
 initServerState :: ServerState
-initServerState = Map.empty
+initServerState = []
 
 numClients :: ServerState -> Int
-numClients = Map.size
+numClients = length
 
-clientExists :: Ticket -> ServerState -> Bool
-clientExists = Map.member
+clientExists :: Client -> ServerState -> Bool
+clientExists (name, _) = any ((==) name . fst)
 
-addClient :: Ticket -> Client -> ServerState -> ServerState
-addClient = Map.insert
+addClient :: Client -> ServerState -> ServerState
+addClient = (:)
 
-removeClient :: Ticket -> ServerState -> ServerState
-removeClient = Map.delete
+removeClient :: Client -> ServerState -> ServerState
+removeClient (name, _) = filter ((/=) name . fst)
 
 close :: Text -> Client -> IO ()
 close message (name, conn) = do
@@ -68,13 +71,13 @@ broadcast message clients = do
 opts :: ConnectionOptions
 opts = defaultConnectionOptions
 
-initApp :: Handler -> MVar [ Ticket ] -> IO WS.ServerApp
-initApp handler tickets = do
+initApp :: StartHandler -> MessageHandler -> MVar [ Ticket ] -> IO WS.ServerApp
+initApp startHandler msgHandler tickets = do
   state <- newMVar initServerState
-  return $ app handler tickets state
+  return $ app startHandler msgHandler tickets state
 
-app :: Handler -> MVar [ Ticket ] -> MVar ServerState -> WS.ServerApp
-app handler tickets state pending = do
+app :: StartHandler -> MessageHandler -> MVar [ Ticket ] -> MVar ServerState -> WS.ServerApp
+app startHandler msgHandler tickets state pending = do
   conn <- WS.acceptRequest pending
   WS.forkPingThread conn 30
 
@@ -85,25 +88,34 @@ app handler tickets state pending = do
   case ticket of
     _ | not $ elem ticket ts ->
           close "Invalid authentication ticket..." client
+      | numClients clients == maxNumClients ->
+          close ("Max number of clients (" <> (T.pack $ show maxNumClients) <> ") already connected") client
       | otherwise ->
           flip finally disconnect $ do
             T.putStrLn ("Client '" <> fst client <> "' joined")
             modifyMVar_ tickets $ pure . filter ((/=) ticket)
-            modifyMVar_ state $ pure . addClient ticket client
-            handleMessages handler client state
+
+            newClients <- modifyMVar state $ \s ->
+              let s' = addClient client s in return (s', s')
+
+            startHandler newClients
+            handleMessages msgHandler client state
       where
         client =
           (toStrict $ decodeUtf8 ticket, conn)
 
         disconnect = do
           s <- modifyMVar state $ \s ->
-            let s' = removeClient ticket s in return (s', s')
+            let s' = removeClient client s in return (s', s')
           T.putStrLn ("Client '" <> fst client <> "' disconnected")
 
-type Handler
+type StartHandler
+  = ServerState -> IO ()
+
+type MessageHandler
   = Text -> Client -> ServerState -> IO ()
 
-handleMessages :: Handler -> Client -> MVar ServerState -> IO ()
+handleMessages :: MessageHandler -> Client -> MVar ServerState -> IO ()
 handleMessages handler client state = forever $ do
   msg <- WS.receiveData (snd client)
   clients <- readMVar state

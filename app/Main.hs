@@ -1,15 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Main where
 
+import GHC.Generics
 import Data.Monoid ((<>))
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text, pack)
 import Data.Text.Lazy (toStrict)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Text.Lazy.Encoding (decodeUtf8)
-import qualified Data.Map.Strict as Map
-import Data.Aeson (FromJSON, (.:), parseJSON, withObject, decodeStrict, encode)
+import Data.Aeson (FromJSON, ToJSON, (.:), (.=), parseJSON, toEncoding, pairs, withObject, decodeStrict, encode)
 import Control.Concurrent (newMVar)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
@@ -30,6 +31,14 @@ type Event
 data Message
   = Message Event
 
+data Player
+  = Player
+      { name :: Text
+      , score :: Int
+      } deriving Generic
+
+instance ToJSON Player where
+
 instance FromJSON Message where
   parseJSON = withObject "Message" $ \v -> Message
     <$> v .: "eventType"
@@ -49,22 +58,44 @@ readEventType :: Text -> Maybe Message
 readEventType =
   decodeStrict . encodeUtf8
 
-messageHandler :: WS.Handler
+encodeTextStrict :: ToJSON a => a -> Text
+encodeTextStrict =
+  toStrict . decodeUtf8 . encode
+
+clientToPlayer :: WS.Client -> Player
+clientToPlayer (name, _) =
+  Player
+    { name = name
+    , score = 0
+    }
+
+startHandler :: WS.StartHandler
+startHandler clients =
+  case clients of
+    c1:c2:[] -> do
+      WS.send (playerMsg $ clientToPlayer c1) c2
+      WS.send (playerMsg $ clientToPlayer c2) c1
+    _ ->
+        return ()
+  where
+      playerMsg player = "{ \"eventType\": \"playerJoined\", \"data\": { \"player\": " <> (encodeTextStrict player) <> " } }"
+
+messageHandler :: WS.MessageHandler
 messageHandler text client clients =
   case readEventType text of
     Just (Message ev)
       | ev == "startGame" -> do
           bag <- Tile.shuffleBag Tile.defaultBag
           WS.send (bagMsg bag) client
-          WS.broadcast (bagMsg $ drop 7 bag) $ Map.filter ((/=) (fst client) . fst) clients
+          WS.broadcast (bagMsg $ drop 7 bag) $ filter ((/=) (fst client) . fst) clients
       | elem ev events ->
-          WS.broadcast text $ Map.filter ((/=) (fst client) . fst) clients
+          WS.broadcast text $ filter ((/=) (fst client) . fst) clients
       | otherwise ->
           T.putStrLn ("'" <> fst client <>  "' sent message with invalid event: \"" <> pack ev <> "\"")
     Nothing ->
       T.putStrLn ("'" <> fst client <>  "' sent invalid message: \"" <> text <> "\"")
   where
-    bagMsg bag = "{ \"eventType\": \"startGame\", \"data\": { \"bag\": " <> (toStrict $ decodeUtf8 $ encode bag) <> " } }"
+    bagMsg bag = "{ \"eventType\": \"startGame\", \"data\": { \"bag\": " <> (encodeTextStrict bag) <> " } }"
 
 assignPort :: [ String ] -> Int
 assignPort args =
@@ -79,6 +110,6 @@ main = do
 
   tickets <- newMVar Tickets.empty
   let rqApp = simpleCors $ RQ.app tickets
-  wsApp <- WS.initApp messageHandler tickets
+  wsApp <- WS.initApp startHandler messageHandler tickets
 
   run port $ websocketsOr WS.opts wsApp rqApp
