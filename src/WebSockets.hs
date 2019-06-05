@@ -5,11 +5,11 @@
 module WebSockets
   ( Client
   , ServerState
-  , StartHandler
-  , MessageHandler
+  , Handlers(..)
   , numClients
   , send
   , broadcast
+  , close
   , initApp
   , opts
   , app
@@ -34,6 +34,22 @@ type Client
 
 type ServerState
   = [ Client ]
+
+type OnConnect
+  = Client -> ServerState -> IO ()
+
+type OnDisconnect
+  = Client -> ServerState -> IO ()
+
+type OnMessage
+  = Text -> Client -> ServerState -> IO ()
+
+data Handlers
+  = Handlers
+      { onConnect :: OnConnect
+      , onMessage :: OnMessage
+      , onDisconnect :: OnDisconnect
+      }
 
 maxNumClients :: Int
 maxNumClients = 2
@@ -71,13 +87,13 @@ broadcast message clients = do
 opts :: ConnectionOptions
 opts = defaultConnectionOptions
 
-initApp :: StartHandler -> MessageHandler -> MVar [ Ticket ] -> IO WS.ServerApp
-initApp startHandler msgHandler tickets = do
+initApp :: Handlers -> MVar [ Ticket ] -> IO WS.ServerApp
+initApp handlers tickets = do
   state <- newMVar initServerState
-  return $ app startHandler msgHandler tickets state
+  return $ app handlers tickets state
 
-app :: StartHandler -> MessageHandler -> MVar [ Ticket ] -> MVar ServerState -> WS.ServerApp
-app startHandler msgHandler tickets state pending = do
+app :: Handlers -> MVar [ Ticket ] -> MVar ServerState -> WS.ServerApp
+app ( Handlers onConnect onMessage onDisconnect ) tickets state pending = do
   conn <- WS.acceptRequest pending
   WS.forkPingThread conn 30
 
@@ -98,24 +114,19 @@ app startHandler msgHandler tickets state pending = do
             newClients <- modifyMVar state $ \s ->
               let s' = addClient client s in return (s', s')
 
-            startHandler newClients
-            handleMessages msgHandler client state
+            onConnect client newClients
+            handleMessages onMessage client state
       where
         client =
           (toStrict $ decodeUtf8 ticket, conn)
 
         disconnect = do
-          s <- modifyMVar state $ \s ->
+          newState <- modifyMVar state $ \s ->
             let s' = removeClient client s in return (s', s')
+          onDisconnect client newState
           T.putStrLn ("Client '" <> fst client <> "' disconnected")
 
-type StartHandler
-  = ServerState -> IO ()
-
-type MessageHandler
-  = Text -> Client -> ServerState -> IO ()
-
-handleMessages :: MessageHandler -> Client -> MVar ServerState -> IO ()
+handleMessages :: OnMessage -> Client -> MVar ServerState -> IO ()
 handleMessages handler client state = forever $ do
   msg <- WS.receiveData (snd client)
   clients <- readMVar state

@@ -69,8 +69,8 @@ clientToPlayer (name, _) =
     , score = 0
     }
 
-startHandler :: WS.StartHandler
-startHandler clients =
+onConnect :: WS.Client -> WS.ServerState -> IO ()
+onConnect _ clients =
   case clients of
     c1:c2:[] -> do
       WS.send (playerMsg $ clientToPlayer c1) c2
@@ -80,12 +80,20 @@ startHandler clients =
   where
       playerMsg player = "{ \"eventType\": \"playerJoined\", \"data\": { \"player\": " <> (encodeTextStrict player) <> " } }"
 
-messageHandler :: WS.MessageHandler
-messageHandler text client clients =
+onDisconnect :: WS.Client -> WS.ServerState -> IO ()
+onDisconnect (name, _) clients =
+  case clients of
+    c:[] ->
+      WS.close ("Player " <> name <> " disconnected! Guess you win?") c
+    _ ->
+        return ()
+
+onMessage :: Text -> WS.Client -> WS.ServerState -> IO ()
+onMessage text client clients =
   case readEventType text of
     Just (Message ev)
       | ev == "startGame" -> do
-          bag <- Tile.shuffleBag Tile.defaultBag
+          bag <- Tile.shuffleBag $ take 14 Tile.defaultBag
           WS.send (bagMsg bag) client
           WS.broadcast (bagMsg $ drop 7 bag) $ filter ((/=) (fst client) . fst) clients
       | elem ev events ->
@@ -110,6 +118,8 @@ main = do
 
   tickets <- newMVar Tickets.empty
   let rqApp = simpleCors $ RQ.app tickets
-  wsApp <- WS.initApp startHandler messageHandler tickets
+
+  let handlers = WS.Handlers onConnect onMessage onDisconnect
+  wsApp <- WS.initApp handlers tickets
 
   run port $ websocketsOr WS.opts wsApp rqApp
