@@ -7,7 +7,7 @@ module Requests
 import Control.Concurrent (MVar, modifyMVar_)
 import Network.Wai (Application, requestMethod, responseLBS)
 import Network.HTTP.Types (status200, status501)
-import Network.HTTP.Types.Header (hContentType)
+import Network.HTTP.Types.Header (hContentType, hCacheControl)
 
 import Tickets (Ticket, new)
 
@@ -22,4 +22,4 @@ app tickets req res = do
       _ ->
         return (status501, "Goodbye.")
 
-  res $ responseLBS code [ ( hContentType, "text/plain" ) ] text
+  res $ responseLBS code [ ( hContentType, "text/plain" ), ( hCacheControl, "no-cache" ) ] text
