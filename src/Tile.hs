@@ -2,6 +2,7 @@ module Tile
   ( Tile
   , defaultBag
   , shuffleBag
+  , bagFromString
   ) where
 
 import Data.Char (ord)
@@ -63,6 +64,14 @@ blank = Blank
 letter :: Char -> Tile
 letter c = Letter c (value c)
 
+fromChar :: Char -> Tile
+fromChar c =
+  case c of
+    ' ' ->
+      blank
+    _ ->
+      letter c
+
 defaultDistribution :: [ (Char, Int) ]
 defaultDistribution =
   [ ('a', 9), ('b', 2), ('c', 2), ('d', 4), ('e', 12)
@@ -80,13 +89,13 @@ defaultBag =
 makeBag :: [ ( Char, Int ) ] -> [ Tile ]
 makeBag =
   foldl (\bag (c, i) ->
-    let tile = case c of
-          ' ' ->
-            blank
-          _ ->
-            letter c
-    in
-      replicate i tile ++ bag
+    replicate i (fromChar c) ++ bag
+  ) []
+
+bagFromString :: String -> [ Tile ]
+bagFromString =
+  foldr (\c bag ->
+    fromChar c : bag
   ) []
 
 shuffleBag :: [ Tile ] -> IO [ Tile ]

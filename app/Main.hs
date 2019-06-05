@@ -96,8 +96,12 @@ onMessage text client clients =
     Just (Message ev)
       | ev == "startGame" -> do
           bag <- Tile.shuffleBag Tile.defaultBag
-          WS.send (bagMsg bag) client
-          WS.broadcast (bagMsg $ drop 7 bag) $ filter ((/=) (fst client) . fst) clients
+          let top7 = take 7 bag
+          let next7 = take 7 $ drop 7 bag
+          let restBag = drop 14 bag
+
+          WS.send (bagMsg $ top7 ++ restBag) client
+          WS.broadcast (bagMsg $ next7 ++ restBag) $ filter ((/=) (fst client) . fst) clients
       | elem ev events ->
           WS.broadcast text $ filter ((/=) (fst client) . fst) clients
       | otherwise ->
