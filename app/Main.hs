@@ -93,7 +93,7 @@ onMessage text client clients =
   case readEventType text of
     Just (Message ev)
       | ev == "startGame" -> do
-          bag <- Tile.shuffleBag $ take 14 Tile.defaultBag
+          bag <- Tile.shuffleBag Tile.defaultBag
           WS.send (bagMsg bag) client
           WS.broadcast (bagMsg $ drop 7 bag) $ filter ((/=) (fst client) . fst) clients
       | elem ev events ->
