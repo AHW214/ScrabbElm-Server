@@ -81,12 +81,14 @@ onConnect _ clients =
       playerMsg player = "{ \"eventType\": \"playerJoined\", \"data\": { \"player\": " <> (encodeTextStrict player) <> " } }"
 
 onDisconnect :: WS.Client -> WS.ServerState -> IO ()
-onDisconnect (name, _) clients =
+onDisconnect client clients =
   case clients of
     c:[] ->
-      WS.close ("Player " <> name <> " disconnected! Guess you win?") c
+      WS.send (playerMsg $ clientToPlayer client) c
     _ ->
         return ()
+    where
+      playerMsg player = "{ \"eventType\": \"playerLeft\", \"data\": { \"player\": " <> (encodeTextStrict player) <> " } }"
 
 onMessage :: Text -> WS.Client -> WS.ServerState -> IO ()
 onMessage text client clients =
