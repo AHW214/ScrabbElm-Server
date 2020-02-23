@@ -1,16 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Models.Room
+module Room
   ( Room(..)
   , Preview
   , new
   , addPlayer
   ) where
 
+import Client (Client)
+import qualified Client
 import qualified Data.List as List
 import Data.Text (Text)
-import Models.Player (Player)
-import qualified Models.Player as Player
+import Player (Player)
+import qualified Player
 import Prelude hiding (id)
 
 data Room
@@ -67,8 +69,8 @@ hasPlayerTag :: Text -> Room -> Bool
 hasPlayerTag name (Room { players = ps }) =
   List.any (Player.hasName name) ps
 
-addPlayer :: Text -> Room -> Either String ( Room, Player )
-addPlayer playerName room
+addPlayer :: Text -> Client -> Room -> Either String ( Room, Player )
+addPlayer playerName client room
   | inGame room =
       Left "Game already started"
   | isFull room =
@@ -77,7 +79,7 @@ addPlayer playerName room
       Left "Player already in room"
   | otherwise =
       let
-        player = Player.new playerName
+        player = Player.new playerName client
         newRoom = room { players = player : (players room) }
       in
         Right ( newRoom, player )

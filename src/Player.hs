@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Models.Player
+module Player
   ( Player(..)
-  , empty
   , new
   , hasName
   ) where
 
+import Client (Client)
 import Data.Text (Text)
 import Prelude hiding (id)
 
@@ -15,18 +15,17 @@ data Player
       { id :: Int
       , name :: Text
       , score :: Int
+      , client :: Client
       }
 
-empty :: Player
-empty =
+new :: Text -> Client -> Player
+new name client =
   Player
     { id = 0
-    , name = ""
+    , name = name
     , score = 0
+    , client = client
     }
-
-new :: Text -> Player
-new name = empty { name = name }
 
 hasName :: Text -> Player -> Bool
 hasName name (Player { name = n }) =
