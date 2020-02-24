@@ -2,13 +2,14 @@
 
 module Room
   ( Room(..)
-  , Preview
   , new
   , addPlayer
   ) where
 
 import Client (Client)
 import qualified Client
+import Data.Aeson (ToJSON, (.=))
+import qualified Data.Aeson as JSON
 import qualified Data.List as List
 import Data.Text (Text)
 import Player (Player)
@@ -24,13 +25,21 @@ data Room
       , playing :: Maybe Player
       }
 
-data Preview
-  = Preview
-      { roomName :: Text
-      , roomCapacity :: Int
-      , numPlayers :: Int
-      , gameStarted :: Bool
-      }
+instance ToJSON Room where
+  toJSON room@(Room _ name capacity players playing) =
+    JSON.object
+      [ "name" .= name
+      , "capacity" .= capacity
+      , "numPlayers" .= length players
+      , "gameStarted" .= inGame room
+      ]
+
+  toEncoding room@(Room _ name capacity players playing) =
+    JSON.pairs
+      $ "name" .= name
+      <> "capacity" .= capacity
+      <> "numPlayers" .= length players
+      <> "gameStarted" .= inGame room
 
 maxCapacity :: Int
 maxCapacity = 4
@@ -98,12 +107,3 @@ removePlayer playerName room@(Room { players = ps }) =
 switchTurn :: Player -> Room -> Room
 switchTurn player room =
   room { playing = Just player }
-
-toPreview :: Room -> Preview
-toPreview room@(Room { name = n, capacity = c, players = ps }) =
-  Preview
-    { roomName = n
-    , roomCapacity = c
-    , numPlayers = length ps
-    , gameStarted = inGame room
-    }
