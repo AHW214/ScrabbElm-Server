@@ -8,7 +8,7 @@ module Room
 
 import Client (Client)
 import qualified Client
-import Data.Aeson (ToJSON, (.=))
+import Data.Aeson (ToJSON, FromJSON, (.=), (.:), withObject)
 import qualified Data.Aeson as JSON
 import qualified Data.List as List
 import Data.Text (Text)
@@ -40,6 +40,13 @@ instance ToJSON Room where
       <> "capacity" .= capacity
       <> "numPlayers" .= length players
       <> "gameStarted" .= inGame room
+
+instance FromJSON Room where
+  parseJSON = withObject "Room" $ \v -> do
+    name <- v .: "name"
+    capacity <- v .: "capacity"
+
+    return $ empty { name = name, capacity = capacity }
 
 maxCapacity :: Int
 maxCapacity = 4
