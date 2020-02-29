@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Server
   ( Server(..)
   , addClient
@@ -41,7 +39,7 @@ removePendingTicket ticket server =
   server { pendingTickets = List.delete ticket $ pendingTickets server }
 
 isPendingTicket :: Ticket -> Server -> Bool
-isPendingTicket ticket (Server { pendingTickets = ts }) =
+isPendingTicket ticket Server { pendingTickets = ts } =
   elem ticket ts
 
 addClient :: Client -> Server -> Server
@@ -49,9 +47,9 @@ addClient client server =
   server { clients = client : clients server }
 
 removeClient :: Client -> Server -> Server
-removeClient (Client { ticket = t }) server =
+removeClient Client { ticket = t } server =
   server { clients = filter (not . Client.hasTicket t) $ clients server }
 
 clientExists :: Client -> Server -> Bool
-clientExists (Client { ticket = t }) (Server { clients = cs }) =
+clientExists Client { ticket = t } Server { clients = cs } =
   List.any (Client.hasTicket t) cs

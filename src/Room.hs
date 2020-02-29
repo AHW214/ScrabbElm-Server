@@ -69,7 +69,7 @@ new name capacity =
     Right $ empty { name = name, capacity = capacity }
 
 inGame :: Room -> Bool
-inGame (Room { playing = p }) =
+inGame Room { playing = p } =
   case p of
     Nothing ->
       False
@@ -78,11 +78,11 @@ inGame (Room { playing = p }) =
       True
 
 isFull :: Room -> Bool
-isFull (Room { capacity = c, players = ps }) =
+isFull Room { capacity = c, players = ps } =
   length ps >= c
 
 hasPlayerTag :: Text -> Room -> Bool
-hasPlayerTag name (Room { players = ps }) =
+hasPlayerTag name Room { players = ps } =
   List.any (Player.hasName name) ps
 
 addPlayer :: Text -> Client -> Room -> Either String ( Room, Player )

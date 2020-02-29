@@ -22,13 +22,13 @@ data Player
       }
 
 instance ToJSON Player where
-  toJSON (Player { name = n, score = s }) =
+  toJSON Player { name = n, score = s } =
     JSON.object
       [ "name" .= n
       , "score" .= s
       ]
 
-  toEncoding (Player { name = n, score = s }) =
+  toEncoding Player { name = n, score = s } =
     JSON.pairs
       $ "name" .= n
       <> "score" .= s
@@ -43,5 +43,5 @@ new name client =
     }
 
 hasName :: Text -> Player -> Bool
-hasName name (Player { name = n }) =
+hasName name Player { name = n } =
   name == n

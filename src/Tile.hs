@@ -94,10 +94,8 @@ makeBag =
 
 bagFromString :: String -> [ Tile ]
 bagFromString =
-  foldr (\c bag ->
-    fromChar c : bag
-  ) []
+  map fromChar
 
 shuffleBag :: [ Tile ] -> IO [ Tile ]
 shuffleBag bag =
-  newStdGen >>= pure . shuffle' bag (length bag)
+  shuffle' bag (length bag) <$> newStdGen

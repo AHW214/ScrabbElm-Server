@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Client
   ( Client(..)
   , new
@@ -28,5 +26,5 @@ new ticket connection =
     ticketText = toStrict $ decodeUtf8 ticket
 
 hasTicket :: Text -> Client -> Bool
-hasTicket ticket (Client { ticket = t }) =
+hasTicket ticket Client { ticket = t } =
   ticket == t

@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Tickets
   ( Ticket
   , empty
@@ -17,4 +15,4 @@ empty = []
 
 new :: Int -> IO Ticket
 new size =
-  newStdGen >>= pure . pack . take size . randomRs ('0', '9')
+  pack . take size . randomRs ('0', '9') <$> newStdGen
