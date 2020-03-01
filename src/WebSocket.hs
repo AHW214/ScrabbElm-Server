@@ -96,15 +96,14 @@ app mServer pending = do
             message <- JSON.eitherDecode <$> WS.receiveData connection
 
             modifyMVar_ mServer $ \s ->
-              case left T.pack message >>= handleMessage client server of
+              case left T.pack message >>= handleMessage client s of
                 Left errMsg ->
-                  T.putStrLn errMsg
-                  >> send errMsg client
+                  -- T.putStrLn errMsg (add logging levels)
+                  send errMsg client
                   >> return s
 
                 Right s' ->
-                  T.putStrLn "bwaha"
-                  >> return s'
+                  return s'
 
           onDisconnect = do
             modifyMVar_ mServer $ return . Server.removeClient client
