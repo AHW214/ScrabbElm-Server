@@ -1,21 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Room
-  ( Room(..)
-  , new
+  ( Room (..)
   , addPlayer
+  , empty
+  , removePlayer
+  , new
+  , switchTurn
   ) where
 
-import Client (Client)
-import qualified Client
-import Data.Aeson (ToJSON, FromJSON, (.=), (.:), withObject)
-import qualified Data.Aeson as JSON
-import qualified Data.List as List
-import Data.Text (Text)
-import Player (Player)
-import qualified Player
-import Prelude hiding (id)
 
+--------------------------------------------------------------------------------
+import           Data.Aeson (FromJSON, ToJSON, withObject, (.=), (.:))
+import qualified Data.Aeson as JSON
+import qualified Data.List  as List
+import           Data.Text  (Text)
+import           Prelude    hiding (id)
+
+
+--------------------------------------------------------------------------------
+import           Client     (Client)
+import qualified Client
+import           Player     (Player)
+import qualified Player
+
+
+--------------------------------------------------------------------------------
 data Room
   = Room
       { id :: Int
@@ -25,6 +35,8 @@ data Room
       , playing :: Maybe Player
       }
 
+
+--------------------------------------------------------------------------------
 instance ToJSON Room where
   toJSON room@(Room _ name capacity players playing) =
     JSON.object
@@ -41,6 +53,8 @@ instance ToJSON Room where
       <> "numPlayers" .= length players
       <> "gameStarted" .= inGame room
 
+
+--------------------------------------------------------------------------------
 instance FromJSON Room where
   parseJSON = withObject "Room" $ \v -> do
     name <- v .: "name"
@@ -48,9 +62,13 @@ instance FromJSON Room where
 
     return $ empty { name = name, capacity = capacity }
 
+
+--------------------------------------------------------------------------------
 maxCapacity :: Int
 maxCapacity = 4
 
+
+--------------------------------------------------------------------------------
 empty :: Room
 empty =
   Room
@@ -61,6 +79,8 @@ empty =
     , playing = Nothing
     }
 
+
+--------------------------------------------------------------------------------
 new :: Text -> Int -> Either Text Room
 new name capacity =
   if capacity > maxCapacity then
@@ -68,6 +88,8 @@ new name capacity =
   else
     Right $ empty { name = name, capacity = capacity }
 
+
+--------------------------------------------------------------------------------
 inGame :: Room -> Bool
 inGame Room { playing = p } =
   case p of
@@ -77,15 +99,21 @@ inGame Room { playing = p } =
     _ ->
       True
 
+
+--------------------------------------------------------------------------------
 isFull :: Room -> Bool
 isFull Room { capacity = c, players = ps } =
   length ps >= c
 
+
+--------------------------------------------------------------------------------
 hasPlayerTag :: Text -> Room -> Bool
 hasPlayerTag name Room { players = ps } =
   List.any (Player.hasName name) ps
 
-addPlayer :: Text -> Client -> Room -> Either String ( Room, Player )
+
+--------------------------------------------------------------------------------
+addPlayer :: Text -> Client -> Room -> Either Text ( Room, Player )
 addPlayer playerName client room
   | inGame room =
       Left "Game already started"
@@ -96,10 +124,12 @@ addPlayer playerName client room
   | otherwise =
       let
         player = Player.new playerName client
-        newRoom = room { players = player : (players room) }
+        newRoom = room { players = player : players room }
       in
         Right ( newRoom, player )
 
+
+--------------------------------------------------------------------------------
 removePlayer :: Text -> Room -> Maybe Room
 removePlayer playerName room@(Room { players = ps }) =
   case ( ps, newPlayers ) of
@@ -111,6 +141,8 @@ removePlayer playerName room@(Room { players = ps }) =
   where
     newPlayers = filter (not . Player.hasName playerName) ps
 
+
+--------------------------------------------------------------------------------
 switchTurn :: Player -> Room -> Room
 switchTurn player room =
   room { playing = Just player }

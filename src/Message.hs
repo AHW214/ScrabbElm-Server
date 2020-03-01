@@ -1,63 +1,80 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Message
-  ( ClientMessage(..)
-  , ServerMessage(..)
+  ( ClientMessage (..)
+  , listRooms
+  , removeRoom
+  , updateRoom
   )
   where
 
-import Data.Aeson (ToJSON, FromJSON, (.=), (.:))
-import qualified Data.Aeson as JSON
-import Data.Text (Text)
-import Room (Room)
 
-data ServerMessage
-  = UpdateRoom Room
-  | RemoveRoom Int
-  | ListRooms [ Room ]
+--------------------------------------------------------------------------------
+import           Data.Aeson           (FromJSON, ToJSON, Value, (.=), (.:))
+import qualified Data.Aeson           as JSON
+import           Data.ByteString.Lazy (ByteString)
+import qualified Data.Map             as Map
+import           Data.Text            (Text)
 
+
+--------------------------------------------------------------------------------
+import           Room                 (Room)
+import           Server               (Server (..))
+import qualified Server
+
+
+--------------------------------------------------------------------------------
 data ClientMessage
   = NewRoom Text Int
-  | JoinRoom Int Int
-  | LeaveRoom Int Int
-
-instance ToJSON ServerMessage where
-  toJSON message = JSON.object $
-    case message of
-      UpdateRoom room ->
-        [ "room" .= room ]
-
-      RemoveRoom roomId ->
-        [ "roomId" .= roomId ]
-
-      ListRooms rooms ->
-        [ "rooms" .= rooms ]
-
-  toEncoding message = JSON.pairs $
-    case message of
-      UpdateRoom room ->
-        "room" .= room
-
-      RemoveRoom roomId ->
-        "roomID" .= roomId
-
-      ListRooms rooms ->
-        "rooms" .= rooms
+  | JoinRoom Text Text
+  | LeaveRoom Text Text
 
 
+--------------------------------------------------------------------------------
 instance FromJSON ClientMessage where
   parseJSON = JSON.withObject "Message" $ \v -> do
     messageType <- v .: "messageType"
+    messageData <- v .: "messageData"
 
     case messageType of
       "newRoom" ->
-        NewRoom <$> v .: "name" <*> v .: "capacity"
+        NewRoom
+          <$> messageData .: "name"
+          <*> messageData .: "capacity"
 
       "joinRoom" ->
-        JoinRoom <$> v .: "playerId" <*> v .: "roomId"
+        JoinRoom
+          <$> messageData .: "playerName"
+          <*> messageData .: "roomName"
 
       "leaveRoom" ->
-        LeaveRoom <$> v .: "playerId" <*> v .: "roomId"
+        LeaveRoom
+          <$> messageData .: "playerName"
+          <*> messageData .: "roomName"
 
       msgType ->
-        fail $ "invalid message type '" ++ msgType ++ "'"
+        fail $ "Invalid message type '" ++ msgType ++ "'"
+
+
+--------------------------------------------------------------------------------
+withMessage :: Text -> Value -> ByteString
+withMessage messageType messageData =
+  JSON.encode $ JSON.object [ "messageType" .= messageType,  "messageData" .= messageData ]
+
+
+--------------------------------------------------------------------------------
+updateRoom :: Room -> ByteString
+updateRoom room =
+  withMessage "updateRoom" $ JSON.object [ "room" .= room ]
+
+
+--------------------------------------------------------------------------------
+removeRoom :: Text -> ByteString
+removeRoom roomName =
+  withMessage "removeRoom" $ JSON.object [ "roomName" .= roomName ]
+
+
+--------------------------------------------------------------------------------
+listRooms :: Server -> ByteString
+listRooms server@Server { rooms = rs } =
+  withMessage "listRooms" $ JSON.object [ "rooms" .= Map.elems rs ]

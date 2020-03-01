@@ -1,19 +1,25 @@
 module Tile
   ( Tile
+  , bagFromString
   , defaultBag
   , shuffleBag
-  , bagFromString
   ) where
 
-import Data.Char (ord)
-import Data.Aeson as AE (ToJSON, toJSON)
-import System.Random (newStdGen)
-import System.Random.Shuffle (shuffle')
 
+--------------------------------------------------------------------------------
+import           Data.Aeson            (ToJSON (toJSON))
+import           Data.Char             (ord)
+import           System.Random         (newStdGen)
+import           System.Random.Shuffle (shuffle')
+
+
+--------------------------------------------------------------------------------
 data Tile
   = Blank
   | Letter Char Int
 
+
+--------------------------------------------------------------------------------
 instance ToJSON Tile where
   toJSON tile =
     toJSON $
@@ -23,6 +29,8 @@ instance ToJSON Tile where
         Letter c v ->
           [ ord c, v ]
 
+
+--------------------------------------------------------------------------------
 points :: [ ( Int, [ Char ] ) ]
 points =
   [ ( 1,  [ 'E', 'A', 'I', 'O', 'N', 'R', 'T', 'L', 'S', 'U' ] )
@@ -34,6 +42,8 @@ points =
   , ( 10, [ 'Q', 'Z' ] )
   ]
 
+
+--------------------------------------------------------------------------------
 pointsLower :: [ ( Int, [ Char ] ) ]
 pointsLower =
   [ ( 1,  [ 'e', 'a', 'i', 'o', 'n', 'r', 't', 'l', 's', 'u' ] )
@@ -45,6 +55,8 @@ pointsLower =
   , ( 10, [ 'q', 'z' ] )
   ]
 
+
+--------------------------------------------------------------------------------
 value :: Char -> Int
 value =
   check pointsLower
@@ -58,12 +70,18 @@ value =
           else
             check rest c
 
+
+--------------------------------------------------------------------------------
 blank :: Tile
 blank = Blank
 
+
+--------------------------------------------------------------------------------
 letter :: Char -> Tile
 letter c = Letter c (value c)
 
+
+--------------------------------------------------------------------------------
 fromChar :: Char -> Tile
 fromChar c =
   case c of
@@ -72,6 +90,8 @@ fromChar c =
     _ ->
       letter c
 
+
+--------------------------------------------------------------------------------
 defaultDistribution :: [ (Char, Int) ]
 defaultDistribution =
   [ ('a', 9), ('b', 2), ('c', 2), ('d', 4), ('e', 12)
@@ -82,20 +102,28 @@ defaultDistribution =
   , ('z', 1), (' ', 2)
   ]
 
+
+--------------------------------------------------------------------------------
 defaultBag :: [ Tile ]
 defaultBag =
   makeBag defaultDistribution
 
+
+--------------------------------------------------------------------------------
 makeBag :: [ ( Char, Int ) ] -> [ Tile ]
 makeBag =
   foldl (\bag (c, i) ->
     replicate i (fromChar c) ++ bag
   ) []
 
+
+--------------------------------------------------------------------------------
 bagFromString :: String -> [ Tile ]
 bagFromString =
   map fromChar
 
+
+--------------------------------------------------------------------------------
 shuffleBag :: [ Tile ] -> IO [ Tile ]
 shuffleBag bag =
   shuffle' bag (length bag) <$> newStdGen

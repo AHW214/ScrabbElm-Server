@@ -1,18 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Player
-  ( Player(..)
+  ( Player (..)
   , new
   , hasName
   ) where
 
-import Client (Client)
-import Data.Aeson (ToJSON, (.=))
-import qualified Data.Aeson as JSON
-import Data.Monoid ((<>))
-import Data.Text (Text)
-import Prelude hiding (id)
 
+--------------------------------------------------------------------------------
+import           Data.Aeson (ToJSON, (.=))
+import qualified Data.Aeson as JSON
+import           Data.Text  (Text)
+import           Prelude    hiding (id)
+
+
+--------------------------------------------------------------------------------
+import           Client     (Client)
+
+
+--------------------------------------------------------------------------------
 data Player
   = Player
       { id :: Int
@@ -21,6 +27,8 @@ data Player
       , client :: Client
       }
 
+
+--------------------------------------------------------------------------------
 instance ToJSON Player where
   toJSON Player { name = n, score = s } =
     JSON.object
@@ -33,6 +41,8 @@ instance ToJSON Player where
       $ "name" .= n
       <> "score" .= s
 
+
+--------------------------------------------------------------------------------
 new :: Text -> Client -> Player
 new name client =
   Player
@@ -42,6 +52,8 @@ new name client =
     , client = client
     }
 
+
+--------------------------------------------------------------------------------
 hasName :: Text -> Player -> Bool
 hasName name Player { name = n } =
   name == n
