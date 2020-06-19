@@ -9,8 +9,15 @@ module Tile
 --------------------------------------------------------------------------------
 import           Data.Aeson            (ToJSON (toJSON))
 import           Data.Char             (ord)
-import           System.Random         (newStdGen)
-import           System.Random.Shuffle (shuffle')
+import qualified Data.List             as List
+import           Data.Map.Strict       (Map)
+import qualified Data.Map.Strict       as Map
+import           Data.Maybe            (fromMaybe)
+import           System.Random         (getStdRandom)
+
+
+--------------------------------------------------------------------------------
+import           Random                (shuffleList)
 
 
 --------------------------------------------------------------------------------
@@ -21,54 +28,38 @@ data Tile
 
 --------------------------------------------------------------------------------
 instance ToJSON Tile where
-  toJSON tile =
-    toJSON $
-      case tile of
-        Blank ->
-          [ ord ' ', 0 ]
-        Letter c v ->
-          [ ord c, v ]
+  toJSON = toJSON .
+    \case
+      Blank ->
+        [ ord ' ', 0 ]
+
+      Letter c v ->
+        [ ord c, v ]
 
 
 --------------------------------------------------------------------------------
-points :: [ ( Int, [ Char ] ) ]
+points :: Map Char Int
 points =
-  [ ( 1,  [ 'E', 'A', 'I', 'O', 'N', 'R', 'T', 'L', 'S', 'U' ] )
-  , ( 2,  [ 'D', 'G' ] )
-  , ( 3,  [ 'B', 'C', 'M', 'P' ] )
-  , ( 4,  [ 'F', 'H', 'V', 'W', 'Y' ] )
-  , ( 5,  [ 'K' ] )
-  , ( 8,  [ 'J', 'X' ] )
-  , ( 10, [ 'Q', 'Z' ] )
-  ]
+  List.foldl' (\mp ( pts, cs ) -> List.foldl' (withPoints pts) mp cs) Map.empty groups
+  where
+    withPoints pts mp chr =
+      Map.insert chr pts mp
 
-
---------------------------------------------------------------------------------
-pointsLower :: [ ( Int, [ Char ] ) ]
-pointsLower =
-  [ ( 1,  [ 'e', 'a', 'i', 'o', 'n', 'r', 't', 'l', 's', 'u' ] )
-  , ( 2,  [ 'd', 'g' ] )
-  , ( 3,  [ 'b', 'c', 'm', 'p' ] )
-  , ( 4,  [ 'f', 'h', 'v', 'w', 'y' ] )
-  , ( 5,  [ 'k' ] )
-  , ( 8,  [ 'j', 'x' ] )
-  , ( 10, [ 'q', 'z' ] )
-  ]
+    groups =
+      [ ( 1,  [ 'e', 'a', 'i', 'o', 'n', 'r', 't', 'l', 's', 'u' ] )
+      , ( 2,  [ 'd', 'g' ] )
+      , ( 3,  [ 'b', 'c', 'm', 'p' ] )
+      , ( 4,  [ 'f', 'h', 'v', 'w', 'y' ] )
+      , ( 5,  [ 'k' ] )
+      , ( 8,  [ 'j', 'x' ] )
+      , ( 10, [ 'q', 'z' ] )
+      ]
 
 
 --------------------------------------------------------------------------------
 value :: Char -> Int
 value =
-  check pointsLower
-  where
-    check map c =
-      case map of
-        [] -> 0
-        (p, cs):rest ->
-          if elem c cs then
-            p
-          else
-            check rest c
+  fromMaybe 0 . flip Map.lookup points
 
 
 --------------------------------------------------------------------------------
@@ -78,7 +69,7 @@ blank = Blank
 
 --------------------------------------------------------------------------------
 letter :: Char -> Tile
-letter c = Letter c (value c)
+letter c = Letter c $ value c
 
 
 --------------------------------------------------------------------------------
@@ -87,6 +78,7 @@ fromChar c =
   case c of
     ' ' ->
       blank
+
     _ ->
       letter c
 
@@ -94,12 +86,12 @@ fromChar c =
 --------------------------------------------------------------------------------
 defaultDistribution :: [ (Char, Int) ]
 defaultDistribution =
-  [ ('a', 9), ('b', 2), ('c', 2), ('d', 4), ('e', 12)
-  , ('f', 2), ('g', 3), ('h', 2), ('i', 9), ('j', 1)
-  , ('k', 1), ('l', 4), ('m', 2), ('n', 6), ('o', 8)
-  , ('p', 2), ('q', 1), ('r', 6), ('s', 4), ('t', 6)
-  , ('u', 4), ('v', 2), ('w', 2), ('x', 1), ('y', 2)
-  , ('z', 1), (' ', 2)
+  [ ( 'a', 9 ), ( 'b', 2 ), ( 'c', 2 ), ( 'd', 4 ), ( 'e', 12 )
+  , ( 'f', 2 ), ( 'g', 3 ), ( 'h', 2 ), ( 'i', 9 ), ( 'j', 1 )
+  , ( 'k', 1 ), ( 'l', 4 ), ( 'm', 2 ), ( 'n', 6 ), ( 'o', 8 )
+  , ( 'p', 2 ), ( 'q', 1 ), ( 'r', 6 ), ( 's', 4 ), ( 't', 6 )
+  , ( 'u', 4 ), ( 'v', 2 ), ( 'w', 2 ), ( 'x', 1 ), ( 'y', 2 )
+  , ( 'z', 1 ), ( ' ', 2 )
   ]
 
 
@@ -112,18 +104,14 @@ defaultBag =
 --------------------------------------------------------------------------------
 makeBag :: [ ( Char, Int ) ] -> [ Tile ]
 makeBag =
-  foldl (\bag (c, i) ->
-    replicate i (fromChar c) ++ bag
-  ) []
+  foldl (\bag ( c, i ) -> replicate i (fromChar c) ++ bag) []
 
 
 --------------------------------------------------------------------------------
 bagFromString :: String -> [ Tile ]
-bagFromString =
-  map fromChar
+bagFromString = map fromChar
 
 
 --------------------------------------------------------------------------------
 shuffleBag :: [ Tile ] -> IO [ Tile ]
-shuffleBag bag =
-  shuffle' bag (length bag) <$> newStdGen
+shuffleBag = getStdRandom . shuffleList

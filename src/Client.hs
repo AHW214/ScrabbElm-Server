@@ -1,7 +1,7 @@
 module Client
   ( Client (..)
-  , new
   , hasTicket
+  , new
   ) where
 
 
@@ -19,23 +19,17 @@ import           Tickets                 (Ticket)
 --------------------------------------------------------------------------------
 data Client
   = Client
-      { ticket :: Text
-      , connection :: Connection
+      { connection :: Connection
+      , ticket     :: Text
       }
 
 
 --------------------------------------------------------------------------------
-new :: Ticket -> Connection -> Client
-new ticket connection =
-  Client
-    { ticket = ticketText
-    , connection = connection
-    }
-  where
-    ticketText = toStrict $ decodeUtf8 ticket
+new :: Connection -> Ticket -> Client
+new connection =
+  Client connection . toStrict . decodeUtf8
 
 
 --------------------------------------------------------------------------------
 hasTicket :: Text -> Client -> Bool
-hasTicket ticket Client { ticket = t } =
-  ticket == t
+hasTicket t = (t ==) . ticket

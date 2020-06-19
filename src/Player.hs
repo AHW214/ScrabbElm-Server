@@ -1,9 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Player
   ( Player (..)
-  , new
   , hasName
+  , new
   ) where
 
 
@@ -11,7 +9,6 @@ module Player
 import           Data.Aeson (ToJSON, (.=))
 import qualified Data.Aeson as JSON
 import           Data.Text  (Text)
-import           Prelude    hiding (id)
 
 
 --------------------------------------------------------------------------------
@@ -21,39 +18,38 @@ import           Client     (Client)
 --------------------------------------------------------------------------------
 data Player
   = Player
-      { id :: Int
-      , name :: Text
-      , score :: Int
-      , client :: Client
+      { client   :: Client
+      , name     :: Text
+      , playerId :: Int
+      , score    :: Int
       }
 
 
 --------------------------------------------------------------------------------
 instance ToJSON Player where
-  toJSON Player { name = n, score = s } =
+  toJSON Player { name, score } =
     JSON.object
-      [ "name" .= n
-      , "score" .= s
+      [ "name"  .= name
+      , "score" .= score
       ]
 
-  toEncoding Player { name = n, score = s } =
+  toEncoding Player { name, score } =
     JSON.pairs
-      $ "name" .= n
-      <> "score" .= s
+      $ "name"   .= name
+      <> "score" .= score
 
 
 --------------------------------------------------------------------------------
 new :: Text -> Client -> Player
 new name client =
   Player
-    { id = 0
-    , name = name
-    , score = 0
-    , client = client
+    { client   = client
+    , name     = name
+    , playerId = 0 -- TODO
+    , score    = 0
     }
 
 
 --------------------------------------------------------------------------------
 hasName :: Text -> Player -> Bool
-hasName name Player { name = n } =
-  name == n
+hasName n = (n ==) . name

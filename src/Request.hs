@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Request
   ( app
   ) where
@@ -8,8 +6,7 @@ module Request
 --------------------------------------------------------------------------------
 import           Control.Concurrent        (MVar, modifyMVar_)
 import           Network.HTTP.Types        (status200, status501)
-import           Network.HTTP.Types.Header (ResponseHeaders, hCacheControl,
-                                            hContentType)
+import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
                                             responseLBS)
 

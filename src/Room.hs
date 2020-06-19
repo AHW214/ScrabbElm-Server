@@ -1,66 +1,65 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Room
   ( Room (..)
   , addPlayer
   , empty
-  , removePlayer
+  , hasPlayerTag
+  , maxCapacity
   , new
+  , removePlayer
   , switchTurn
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson (FromJSON, ToJSON, withObject, (.=), (.:))
-import qualified Data.Aeson as JSON
-import qualified Data.List  as List
-import           Data.Text  (Text)
-import           Prelude    hiding (id)
+import           Data.Aeson         (FromJSON, ToJSON, withObject, (.=), (.:))
+import qualified Data.Aeson         as JSON
+import qualified Data.List          as List
+import qualified Data.Maybe         as Maybe
+import           Data.Text          (Text)
+import           Network.WebSockets (Connection)
 
 
 --------------------------------------------------------------------------------
-import           Client     (Client)
-import qualified Client
-import           Player     (Player)
+import           Player (Player)
 import qualified Player
 
 
 --------------------------------------------------------------------------------
 data Room
   = Room
-      { id :: Int
-      , name :: Text
-      , capacity :: Int
-      , players :: [ Player ]
-      , playing :: Maybe Player
+      { capacity :: Int
+      , name     :: Text
+      , players  :: [ Player ]
+      , playing  :: Maybe Player
+      , roomId   :: Int
       }
 
 
 --------------------------------------------------------------------------------
 instance ToJSON Room where
-  toJSON room@(Room _ name capacity players playing) =
+  toJSON room =
     JSON.object
-      [ "name" .= name
-      , "capacity" .= capacity
-      , "numPlayers" .= length players
+      [ "name"        .= name room
+      , "capacity"    .= capacity room
+      , "numPlayers"  .= numPlayers room
       , "gameStarted" .= inGame room
       ]
 
-  toEncoding room@(Room _ name capacity players playing) =
+  toEncoding room =
     JSON.pairs
-      $ "name" .= name
-      <> "capacity" .= capacity
-      <> "numPlayers" .= length players
+      $  "name"        .= name room
+      <> "capacity"    .= capacity room
+      <> "numPlayers"  .= numPlayers room
       <> "gameStarted" .= inGame room
 
 
 --------------------------------------------------------------------------------
 instance FromJSON Room where
   parseJSON = withObject "Room" $ \v -> do
-    name <- v .: "name"
+    name     <- v .: "name"
     capacity <- v .: "capacity"
 
-    return $ empty { name = name, capacity = capacity }
+    return $ empty { name, capacity }
 
 
 --------------------------------------------------------------------------------
@@ -72,74 +71,61 @@ maxCapacity = 4
 empty :: Room
 empty =
   Room
-    { id = 0
-    , name = ""
-    , capacity = maxCapacity
-    , players = []
-    , playing = Nothing
+    { capacity = maxCapacity
+    , name     = ""
+    , players  = []
+    , playing  = Nothing
+    , roomId   = 0
     }
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Either Text Room
+new :: Text -> Int -> Room
 new name capacity =
-  if capacity > maxCapacity then
-    Left "Capacity is too large"
-  else
-    Right $ empty { name = name, capacity = capacity }
+    empty { capacity, name }
 
 
 --------------------------------------------------------------------------------
 inGame :: Room -> Bool
-inGame Room { playing = p } =
-  case p of
-    Nothing ->
-      False
+inGame = Maybe.isJust . playing
 
-    _ ->
-      True
+
+--------------------------------------------------------------------------------
+numPlayers :: Room -> Int
+numPlayers = length . players
 
 
 --------------------------------------------------------------------------------
 isFull :: Room -> Bool
-isFull Room { capacity = c, players = ps } =
-  length ps >= c
+isFull room =
+  numPlayers room >= capacity room
 
 
 --------------------------------------------------------------------------------
 hasPlayerTag :: Text -> Room -> Bool
-hasPlayerTag name Room { players = ps } =
-  List.any (Player.hasName name) ps
+hasPlayerTag name =
+  List.any (Player.hasName name) . players
 
 
 --------------------------------------------------------------------------------
-addPlayer :: Text -> Client -> Room -> Either Text ( Room, Player )
-addPlayer playerName client room
-  | inGame room =
-      Left "Game already started"
-  | isFull room =
-      Left "Room is full"
-  | hasPlayerTag playerName room =
-      Left "Player already in room"
-  | otherwise =
-      let
-        player = Player.new playerName client
-        newRoom = room { players = player : players room }
-      in
-        Right ( newRoom, player )
+addPlayer :: Text -> Connection -> Room -> Room
+addPlayer playerName conn room
+
+    player = Player.new playerName client
+    newRoom = room { players = player : players room }
 
 
 --------------------------------------------------------------------------------
 removePlayer :: Text -> Room -> Maybe Room
-removePlayer playerName room@(Room { players = ps }) =
-  case ( ps, newPlayers ) of
+removePlayer playerName room@(Room { players }) =
+  case ( players, newPlayers ) of
     ( _:[], [] ) ->
       Nothing
 
     _ ->
       Just $ room { players = newPlayers }
   where
-    newPlayers = filter (not . Player.hasName playerName) ps
+    newPlayers = filter (not . Player.hasName playerName) players
 
 
 --------------------------------------------------------------------------------
