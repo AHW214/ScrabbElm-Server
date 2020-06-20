@@ -2,7 +2,11 @@ module Room
   ( Room (..)
   , addPlayer
   , empty
+  , getPlayer
   , hasPlayerTag
+  , inGame
+  , isEmpty
+  , isFull
   , maxCapacity
   , new
   , removePlayer
@@ -13,14 +17,15 @@ module Room
 --------------------------------------------------------------------------------
 import           Data.Aeson         (FromJSON, ToJSON, withObject, (.=), (.:))
 import qualified Data.Aeson         as JSON
-import qualified Data.List          as List
+import           Data.Map           (Map)
+import qualified Data.Map           as Map
 import qualified Data.Maybe         as Maybe
 import           Data.Text          (Text)
-import           Network.WebSockets (Connection)
+import           Prelude            hiding (id)
 
 
 --------------------------------------------------------------------------------
-import           Player (Player)
+import           Player (Player (Player))
 import qualified Player
 
 
@@ -28,10 +33,10 @@ import qualified Player
 data Room
   = Room
       { capacity :: Int
+      , id       :: Int
       , name     :: Text
-      , players  :: [ Player ]
+      , players  :: Map Text Player
       , playing  :: Maybe Player
-      , roomId   :: Int
       }
 
 
@@ -72,17 +77,17 @@ empty :: Room
 empty =
   Room
     { capacity = maxCapacity
+    , id       = 0
     , name     = ""
-    , players  = []
+    , players  = Map.empty
     , playing  = Nothing
-    , roomId   = 0
     }
 
 
 --------------------------------------------------------------------------------
 new :: Text -> Int -> Room
 new name capacity =
-    empty { capacity, name }
+  empty { capacity, name }
 
 
 --------------------------------------------------------------------------------
@@ -102,30 +107,33 @@ isFull room =
 
 
 --------------------------------------------------------------------------------
+isEmpty :: Room -> Bool
+isEmpty room =
+  numPlayers room <= 0
+
+
+--------------------------------------------------------------------------------
+getPlayer :: Text -> Room -> Maybe Player
+getPlayer tag =
+  Map.lookup tag . players
+
+
+--------------------------------------------------------------------------------
 hasPlayerTag :: Text -> Room -> Bool
-hasPlayerTag name =
-  List.any (Player.hasName name) . players
+hasPlayerTag tag =
+  Map.member tag . players
 
 
 --------------------------------------------------------------------------------
-addPlayer :: Text -> Connection -> Room -> Room
-addPlayer playerName conn room
-
-    player = Player.new playerName client
-    newRoom = room { players = player : players room }
+addPlayer :: Player -> Room -> Room
+addPlayer player@Player { Player.name } room@Room { players } =
+  room { players = Map.insert name player players }
 
 
 --------------------------------------------------------------------------------
-removePlayer :: Text -> Room -> Maybe Room
-removePlayer playerName room@(Room { players }) =
-  case ( players, newPlayers ) of
-    ( _:[], [] ) ->
-      Nothing
-
-    _ ->
-      Just $ room { players = newPlayers }
-  where
-    newPlayers = filter (not . Player.hasName playerName) players
+removePlayer :: Player -> Room -> Room
+removePlayer Player { Player.name } room@Room { players } =
+  room { players = Map.delete name players }
 
 
 --------------------------------------------------------------------------------

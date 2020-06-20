@@ -6,18 +6,18 @@ module Tickets
 
 
 --------------------------------------------------------------------------------
-import           Data.ByteString.Lazy.Char8 (ByteString)
-import qualified Data.ByteString.Lazy.Char8 as BS
-import           System.Random              (getStdRandom)
+import           Data.Text     (Text)
+import qualified Data.Text     as T
+import           System.Random (getStdRandom)
 
 
 --------------------------------------------------------------------------------
-import           Random                     (randomRSequence)
+import           Random (randomRSequence)
 
 
 --------------------------------------------------------------------------------
 type Ticket =
-  ByteString
+  Text
 
 
 --------------------------------------------------------------------------------
@@ -28,4 +28,4 @@ empty = []
 --------------------------------------------------------------------------------
 new :: Int -> IO Ticket
 new =
-  fmap BS.pack . getStdRandom . randomRSequence ( '0', '9' )
+  fmap T.pack . getStdRandom . randomRSequence ( '0', '9' )

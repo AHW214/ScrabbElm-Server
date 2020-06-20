@@ -6,22 +6,20 @@ module Player
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson (ToJSON, (.=))
-import qualified Data.Aeson as JSON
-import           Data.Text  (Text)
-
-
---------------------------------------------------------------------------------
-import           Client     (Client)
+import           Data.Aeson         (ToJSON, (.=))
+import qualified Data.Aeson         as JSON
+import           Data.Text          (Text)
+import           Network.WebSockets (Connection)
+import           Prelude            hiding (id)
 
 
 --------------------------------------------------------------------------------
 data Player
   = Player
-      { client   :: Client
-      , name     :: Text
-      , playerId :: Int
-      , score    :: Int
+      { connection :: Connection
+      , id         :: Int
+      , name       :: Text
+      , score      :: Int
       }
 
 
@@ -40,13 +38,13 @@ instance ToJSON Player where
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Client -> Player
-new name client =
+new :: Text -> Connection -> Player
+new name conn =
   Player
-    { client   = client
-    , name     = name
-    , playerId = 0 -- TODO
-    , score    = 0
+    { connection = conn
+    , id         = 0 -- TODO
+    , name       = name
+    , score      = 0
     }
 
 

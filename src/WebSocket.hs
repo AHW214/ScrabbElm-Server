@@ -17,23 +17,27 @@ import qualified Network.WebSockets as WS
 
 
 --------------------------------------------------------------------------------
-import           Client  (Client (..))
-import qualified Client
 import           Message (ClientMessage (..))
 import qualified Message
+import qualified Player
 import qualified Room
-import           Server  (Server (..))
+import           Server  (Server)
 import qualified Server
 import           Tickets (Ticket)
 
 
 --------------------------------------------------------------------------------
 data Error
-  = RoomInvalidCapacity
-  | RoomNoEntry
-  | RoomInGame
+  = ClientExists
+  | RoomExists
   | RoomFull
   | RoomHasPlayer
+  | RoomInGame
+  | RoomInvalidCapacity
+  | RoomMissingPlayer
+  | RoomNoEntry
+  | TicketInvalid
+  deriving Show
 
 
 --------------------------------------------------------------------------------
@@ -51,24 +55,26 @@ send = flip WS.sendTextData
 --------------------------------------------------------------------------------
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
-  void . traverse (send message) . clients
+  void . traverse (send message) . Server.connections
 
 
 --------------------------------------------------------------------------------
-handleMessage :: Client -> Server -> ClientMessage -> Either Error Server
-handleMessage client server message =
+handleMessage :: Connection -> Server -> ClientMessage -> Either Error Server
+handleMessage conn server message =
   case message of
     NewRoom name capacity ->
-      if capacity > 0 && capacity <= Room.maxCapacity then
-        Right $ Server.addRoom name capacity server
-      else
-        Left InvalidRoomCapacity
+      case Server.getRoom name server of
+        Nothing ->
+          if capacity > 0 && capacity <= Room.maxCapacity then
+            Right $ Server.addRoom (Room.new name capacity) server
+          else
+            Left RoomInvalidCapacity
+
+        _ ->
+          Left RoomExists
 
     JoinRoom playerName roomName ->
-      (case Server.getRoom roomName server of
-        Nothing ->
-          Left RoomNoEntry
-
+      case Server.getRoom roomName server of
         Just room ->
           if | Room.inGame room ->
                 Left RoomInGame
@@ -76,40 +82,39 @@ handleMessage client server message =
              | Room.isFull room ->
                 Left RoomFull
 
-             | Room.hasPlayertag playerName room ->
+             | Room.hasPlayerTag playerName room ->
                 Left RoomHasPlayer
 
              | otherwise ->
                 let
-                  newRoom = Room.addPlayer playerName room
+                  player = Player.new playerName conn
+                  newRoom = Room.addPlayer player room
                 in
-                  Server.addRoom newRoom server)
+                  Right $ Server.addRoom newRoom server
 
-    LeaveRoom playerName roomName ->
-      (case Server.getRoom roomName server of
-        Nothing ->
+        _ ->
           Left RoomNoEntry
 
-        Just room -> Right $
-          case Room.removePlayer playerName room of
-            Nothing ->
-              Server.removeRoom roomName server
-
-            Just newRoom ->
-              Server.addRoom roomName newRoom server)
-
-
-
-
-
-      flip Server.updateRoom server . fst
-      <$> ( Room.addPlayer playerName client
-      =<< Server.getRoom roomName server )
-
     LeaveRoom playerName roomName ->
-      flip (Server.maybeUpdateRoom roomName) server
-      . Room.removePlayer playerName
-      <$> Server.getRoom roomName server
+      case Server.getRoom roomName server of
+        Just room ->
+          case Room.getPlayer playerName room of
+            Just player ->
+              let
+                newRoom =
+                  Room.removePlayer player room
+
+                update =
+                  if Room.isEmpty newRoom then
+                    Server.removeRoom
+                  else
+                    Server.addRoom
+              in
+                Right $ update newRoom server
+
+            _ -> Left RoomMissingPlayer
+
+        _ -> Left RoomNoEntry
 
 
 --------------------------------------------------------------------------------
@@ -120,21 +125,24 @@ app mServer pending = do
     ticket <- WS.receiveData connection
     server <- readMVar mServer
 
+    let disconnect err =
+          close (T.pack $ show err) ticket connection
+
     case () of
       _ | not $ Server.isPendingTicket ticket server ->
-          close ("Invalid authentication ticket" :: Text) ticket connection
+            disconnect TicketInvalid
 
-        | Server.clientExists ticket server ->
-          close ("Client already connected" :: Text) ticket connection
+      _ | Server.connectionExists ticket server ->
+            disconnect ClientExists
 
-        | otherwise ->
+      _ | otherwise ->
             finally (onConnect >> onMessage) onDisconnect
         where
           onConnect = do
             newServer <- modifyMVar mServer $ \s ->
               let
                 s' = Server.removePendingTicket ticket
-                   $ Server.addClient ticket connection s
+                  $ Server.acceptConnection ticket connection s
               in
                 return ( s', s' )
 
@@ -146,15 +154,15 @@ app mServer pending = do
             message <- JSON.eitherDecode <$> WS.receiveData connection
 
             modifyMVar_ mServer $ \s ->
-              case left T.pack message >>= handleMessage client s of
+              case left T.pack message >>= left (T.pack . show) . handleMessage connection s of
                 Left errMsg ->
                   -- T.putStrLn errMsg (add logging levels)
-                  send errMsg client
-                  >> return s
+                  send errMsg connection
+                  >> return server
 
-                Right s' ->
-                  return s'
+                Right newServer ->
+                  return newServer
 
           onDisconnect = do
-            modifyMVar_ mServer $ return . Server.removeClient ticket
+            modifyMVar_ mServer $ return . Server.removeConnection ticket
             T.putStrLn $ "Client with ticket " <> ticket <> " disconnected"

@@ -1,13 +1,13 @@
 module Server
   ( Server (..)
-  , addClient
+  , acceptConnection
   , addPendingTicket
   , addRoom
-  , clientExists
+  , connectionExists
   , getRoom
   , isPendingTicket
   , new
-  , removeClient
+  , removeConnection
   , removePendingTicket
   , removeRoom
   ) where
@@ -23,7 +23,8 @@ import           Network.WebSockets (Connection)
 
 
 --------------------------------------------------------------------------------
-import           Room    (Room (..))
+import           Room    (Room (Room))
+import qualified Room
 import           Tickets (Ticket)
 
 
@@ -31,7 +32,7 @@ import           Tickets (Ticket)
 data Server
   = Server
       { pendingTickets :: Set Ticket
-      , clients        :: Map Ticket Connection
+      , connections    :: Map Ticket Connection
       , rooms          :: Map Text Room
       }
 
@@ -41,7 +42,7 @@ new :: Server
 new =
   Server
     { pendingTickets = Set.empty
-    , clients        = Map.empty
+    , connections    = Map.empty
     , rooms          = Map.empty
     }
 
@@ -65,33 +66,33 @@ isPendingTicket ticket =
 
 
 --------------------------------------------------------------------------------
-addClient :: Ticket -> Connection -> Server -> Server
-addClient ticket conn server =
-  server { clients = Map.insert ticket conn $ clients server }
+acceptConnection :: Ticket -> Connection -> Server -> Server
+acceptConnection ticket conn server =
+  server { connections = Map.insert ticket conn $ connections server }
 
 
 --------------------------------------------------------------------------------
-removeClient :: Ticket -> Server -> Server
-removeClient ticket server =
-  server { clients = Map.delete ticket $ clients server }
+removeConnection :: Ticket -> Server -> Server
+removeConnection ticket server =
+  server { connections = Map.delete ticket $ connections server }
 
 
 --------------------------------------------------------------------------------
-clientExists :: Ticket -> Server -> Bool
-clientExists ticket =
-  Map.member ticket . clients
+connectionExists :: Ticket -> Server -> Bool
+connectionExists ticket =
+  Map.member ticket . connections
 
 
 --------------------------------------------------------------------------------
 addRoom :: Room -> Server -> Server
-addRoom room@Room { name } server@Server { rooms } =
+addRoom room@Room { Room.name } server@Server { rooms } =
   server { rooms = Map.insert name room rooms }
 
 
 --------------------------------------------------------------------------------
-removeRoom :: Text -> Server -> Server
-removeRoom roomName server@Server { rooms } =
-  server { rooms = Map.delete roomName rooms }
+removeRoom :: Room -> Server -> Server
+removeRoom Room { Room.name } server@Server { rooms } =
+  server { rooms = Map.delete name rooms }
 
 
 --------------------------------------------------------------------------------
