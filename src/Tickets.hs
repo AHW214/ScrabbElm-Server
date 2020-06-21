@@ -1,20 +1,31 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Tickets
   ( Ticket
   , empty
   , new
   ) where
 
-import System.Random (newStdGen, randomRs)
-import Data.ByteString.Lazy.Char8 (ByteString, pack)
 
+--------------------------------------------------------------------------------
+import           Data.Text     (Text)
+import qualified Data.Text     as T
+import           System.Random (getStdRandom)
+
+
+--------------------------------------------------------------------------------
+import           Random (randomRSequence)
+
+
+--------------------------------------------------------------------------------
 type Ticket =
-  ByteString
+  Text
 
+
+--------------------------------------------------------------------------------
 empty :: [ Ticket ]
 empty = []
 
+
+--------------------------------------------------------------------------------
 new :: Int -> IO Ticket
-new size =
-  newStdGen >>= pure . pack . take size . randomRs ('0', '9')
+new =
+  fmap T.pack . getStdRandom . randomRSequence ( '0', '9' )
