@@ -7,17 +7,17 @@ module Tile
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson            (ToJSON (toJSON))
-import           Data.Char             (ord)
-import qualified Data.List             as List
-import           Data.Map.Strict       (Map)
-import qualified Data.Map.Strict       as Map
-import           Data.Maybe            (fromMaybe)
-import           System.Random         (getStdRandom)
+import           Data.Aeson      (ToJSON (toJSON))
+import           Data.Char       (ord)
+import qualified Data.List       as List
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import           Data.Maybe      (fromMaybe)
+import           System.Random   (getStdRandom)
 
 
 --------------------------------------------------------------------------------
-import           Random                (shuffleList)
+import           Random (shuffleList)
 
 
 --------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 module Message
   ( ClientMessage (..)
+  , eitherDecode
   , listRooms
   , removeRoom
   , updateRoom
@@ -7,16 +8,19 @@ module Message
 
 
 --------------------------------------------------------------------------------
+import           Control.Arrow        (left)
 import           Data.Aeson           (FromJSON, Value, (.=), (.:))
 import qualified Data.Aeson           as JSON
-import           Data.ByteString.Lazy (ByteString)
-import qualified Data.Map             as Map
+import qualified Data.ByteString      as BSS
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Map.Strict      as Map
 import           Data.Text            (Text)
+import qualified Data.Text            as T
 
 
 --------------------------------------------------------------------------------
-import           Room                 (Room)
-import           Server               (Server (..))
+import           Room   (Room)
+import           Server (Server (..))
 
 
 --------------------------------------------------------------------------------
@@ -51,7 +55,12 @@ instance FromJSON ClientMessage where
 
 
 --------------------------------------------------------------------------------
-withMessage :: Text -> Value -> ByteString
+eitherDecode :: BSS.ByteString -> Either Text ClientMessage
+eitherDecode = left T.pack . JSON.eitherDecodeStrict'
+
+
+--------------------------------------------------------------------------------
+withMessage :: Text -> Value -> BSL.ByteString
 withMessage messageType messageData =
   JSON.encode $ JSON.object
     [ "messageType" .= messageType
@@ -60,21 +69,21 @@ withMessage messageType messageData =
 
 
 --------------------------------------------------------------------------------
-updateRoom :: Room -> ByteString
+updateRoom :: Room -> BSL.ByteString
 updateRoom room =
   withMessage "updateRoom"
     $ JSON.object [ "room" .= room ]
 
 
 --------------------------------------------------------------------------------
-removeRoom :: Text -> ByteString
+removeRoom :: Text -> BSL.ByteString
 removeRoom roomName =
   withMessage "removeRoom"
     $ JSON.object [ "roomName" .= roomName ]
 
 
 --------------------------------------------------------------------------------
-listRooms :: Server -> ByteString
+listRooms :: Server -> BSL.ByteString
 listRooms Server { rooms } =
   withMessage "listRooms"
     $ JSON.object [ "rooms" .= Map.elems rooms ]

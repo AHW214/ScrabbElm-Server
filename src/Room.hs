@@ -15,13 +15,13 @@ module Room
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson         (FromJSON, ToJSON, withObject, (.=), (.:))
-import qualified Data.Aeson         as JSON
-import           Data.Map           (Map)
-import qualified Data.Map           as Map
-import qualified Data.Maybe         as Maybe
-import           Data.Text          (Text)
-import           Prelude            hiding (id)
+import           Data.Aeson      (FromJSON, ToJSON, withObject, (.=), (.:))
+import qualified Data.Aeson      as JSON
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import qualified Data.Maybe      as Maybe
+import           Data.Text       (Text)
+import           Prelude         hiding (id)
 
 
 --------------------------------------------------------------------------------

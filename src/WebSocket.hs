@@ -4,16 +4,16 @@ module WebSocket
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow      (left)
-import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
-import           Control.Exception  (finally)
-import           Control.Monad      (forever, void)
-import           Data.Aeson         as JSON
-import           Data.Text          (Text)
-import qualified Data.Text          as T
-import qualified Data.Text.IO       as T
-import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
-import qualified Network.WebSockets as WS
+import           Control.Arrow        (left)
+import           Control.Concurrent   (MVar, modifyMVar, modifyMVar_, readMVar)
+import           Control.Exception    (finally)
+import           Control.Monad        (forever, void)
+import           Data.ByteString      as BSS
+import           Data.Text            (Text)
+import qualified Data.Text            as T
+import qualified Data.Text.IO         as T
+import           Network.WebSockets   (Connection, WebSocketsData, ServerApp)
+import qualified Network.WebSockets   as WS
 
 
 --------------------------------------------------------------------------------
@@ -29,6 +29,7 @@ import           Tickets (Ticket)
 --------------------------------------------------------------------------------
 data Error
   = ClientExists
+  | MessageInvalid Text
   | RoomExists
   | RoomFull
   | RoomHasPlayer
@@ -41,10 +42,14 @@ data Error
 
 
 --------------------------------------------------------------------------------
-close :: WebSocketsData a => a -> Ticket -> Connection -> IO ()
-close message ticket conn = do
-  T.putStrLn $ "Disconnecting client with ticket " <> ticket
-  WS.sendClose conn message
+close :: Text -> Ticket -> Connection -> IO ()
+close reason ticket conn = do
+  T.putStrLn $ T.unlines
+    [ "Disconnecting client with ticket " <> ticket
+    , "Reason: " <> reason
+    ]
+
+  WS.sendClose conn reason
 
 
 --------------------------------------------------------------------------------
@@ -56,6 +61,11 @@ send = flip WS.sendTextData
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
   void . traverse (send message) . Server.connections
+
+
+--------------------------------------------------------------------------------
+decodeMessage :: BSS.ByteString -> Either Error ClientMessage
+decodeMessage = left MessageInvalid . Message.eitherDecode
 
 
 --------------------------------------------------------------------------------
@@ -151,17 +161,17 @@ app mServer pending = do
             send (Message.listRooms newServer) connection
 
           onMessage = forever $ do
-            message <- JSON.eitherDecode <$> WS.receiveData connection
+            message <- decodeMessage <$> WS.receiveData connection
 
             modifyMVar_ mServer $ \s ->
-              case left T.pack message >>= left (T.pack . show) . handleMessage connection s of
-                Left errMsg ->
+              case message >>= handleMessage connection s of
+                Left err ->
                   -- T.putStrLn errMsg (add logging levels)
-                  send errMsg connection
-                  >> return server
+                  send (T.pack $ show err) connection
+                  >> return s
 
-                Right newServer ->
-                  return newServer
+                Right s' ->
+                  return s'
 
           onDisconnect = do
             modifyMVar_ mServer $ return . Server.removeConnection ticket

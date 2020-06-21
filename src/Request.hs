@@ -16,7 +16,7 @@ import           Network.Wai               (Application, requestMethod,
 
 
 --------------------------------------------------------------------------------
-import           Server                    (Server)
+import           Server (Server)
 import qualified Server
 import qualified Tickets
 
