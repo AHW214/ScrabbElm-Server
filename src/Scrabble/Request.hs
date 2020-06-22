@@ -27,7 +27,7 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        ( plain, crypt ) <- Auth.new "CHANGE ME" 10
+        ( plain, crypt ) <- Auth.new "CHANGE ME LATER ALSO ADD CONFIG" 10 -- 16 < length key <= 32 (add error handle?)
 
         modifyMVar_ mServer $ pure . Server.createPendingClient plain
 

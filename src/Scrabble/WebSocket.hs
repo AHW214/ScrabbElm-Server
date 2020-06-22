@@ -8,6 +8,7 @@ import           Control.Arrow           (left)
 import           Control.Concurrent      (MVar, modifyMVar, modifyMVar_, readMVar)
 import           Control.Exception       (finally)
 import           Control.Monad           (forever, void)
+import           Data.Functor            ((<&>))
 import           Data.Text               (Text)
 import           Network.WebSockets      (Connection, WebSocketsData, ServerApp)
 
@@ -29,12 +30,14 @@ import qualified Scrabble.Server         as Server
 
 --------------------------------------------------------------------------------
 type Client =
-  ( Ticket, Connection )
+  ( Text, Connection )
 
 
 --------------------------------------------------------------------------------
 data Error
-  = ClientExists
+  = AuthFormatInvalid
+  | AuthTicketInvalid
+  | AuthIdentityInvalid
   | MessageInvalid Text
   | RoomExists
   | RoomFull
@@ -43,19 +46,18 @@ data Error
   | RoomInvalidCapacity
   | RoomMissingPlayer
   | RoomNoEntry
-  | TicketInvalid
   deriving Show
 
 
 --------------------------------------------------------------------------------
-close :: Text -> Client -> IO ()
-close reason ( ticket, conn ) = do
+close :: Text -> Connection -> IO ()
+close reason connection = do
   T.putStrLn $ T.unlines
-    [ "Disconnecting client with ticket " <> ticket
+    [ "Disconnecting client"
     , "Reason: " <> reason
     ]
 
-  WS.sendClose conn reason
+  WS.sendClose connection reason
 
 
 --------------------------------------------------------------------------------
@@ -70,7 +72,7 @@ sendAll message =
 
 
 --------------------------------------------------------------------------------
-sendWhen :: WebSocketsData a => (Ticket -> Bool) -> a -> Server -> IO ()
+sendWhen :: WebSocketsData a => (Text -> Bool) -> a -> Server -> IO ()
 sendWhen predicate message =
   sendAll message . Server.clientsWho predicate
 
@@ -78,7 +80,7 @@ sendWhen predicate message =
 --------------------------------------------------------------------------------
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
-  sendAll message . serverConnections
+  sendAll message . serverConnectedClients
 
 
 --------------------------------------------------------------------------------
@@ -89,7 +91,7 @@ decodeMessage =
 
 --------------------------------------------------------------------------------
 handleMessage :: Client -> Server -> ClientMessage -> Either Error ( Server, IO () )
-handleMessage client@( ticket, conn ) server message =
+handleMessage client@( clientId, clientConn ) server message =
   case message of
     NewRoom name capacity ->
       case Server.getRoom name server of
@@ -129,18 +131,18 @@ handleMessage client@( ticket, conn ) server message =
                   newRoom = Room.addPlayer newPlayer room
                 in
                   Right
-                    ( Server.joinRoom ticket roomName
+                    ( Server.joinRoom clientId roomName
                       $ Server.addRoom newRoom server
-                    , send (Message.joinRoom newRoom) conn
+                    , send (Message.joinRoom newRoom) clientConn
                     )
 
         _ ->
           Left RoomNoEntry
 
     LeaveRoom ->
-      case Server.getClientRoom ticket server of
+      case Server.getClientRoom clientId server of
         Just room ->
-          case Room.getPlayer ticket room of
+          case Room.getPlayer clientId room of
             Just player ->
               let
                 newRoom =
@@ -152,7 +154,7 @@ handleMessage client@( ticket, conn ) server message =
                 ( update, action ) =
                   if Room.isEmpty newRoom then
                     ( \r ->
-                        Server.leaveRoom ticket
+                        Server.leaveRoom clientId
                         . Server.removeRoom r
                     , sendWhen
                         (not . flip Server.inRoom server)
@@ -161,12 +163,12 @@ handleMessage client@( ticket, conn ) server message =
                     )
                   else
                     ( Server.addRoom
-                    , return ()
+                    , pure ()
                     )
               in
                 Right
                   ( update newRoom server
-                  , send (Message.leaveRoom name) conn
+                  , send (Message.leaveRoom name) clientConn
                     >> action
                   )
 
@@ -176,54 +178,60 @@ handleMessage client@( ticket, conn ) server message =
 
 
 --------------------------------------------------------------------------------
+authenticate :: MVar Server -> Client -> Auth.Plain -> IO ()
+authenticate mServer client@( clientId, clientConn ) clientTicket =
+  readMVar mServer <&> Server.getPendingClient clientId >>=
+    \case
+      Nothing ->
+        disconnect AuthIdentityInvalid
+
+      Just ticket | ticket /= clientTicket ->
+        disconnect AuthTicketInvalid
+
+      _ ->
+        finally (onConnect >> onMessage) onDisconnect
+  where
+    onConnect = do
+      newServer <- modifyMVar mServer $ \s ->
+        let
+          s' = Server.acceptPendingClient clientId clientConn s
+        in
+          pure ( s', s' )
+
+      T.putStrLn $ "Client " <> clientId <> " connected"
+
+      send (Message.listRooms newServer) clientConn
+
+    onMessage = forever $ do
+      message <- decodeMessage <$> WS.receiveData clientConn
+
+      modifyMVar_ mServer $ \s ->
+        case message >>= handleMessage client s of
+          Left err ->
+            -- T.putStrLn errMsg (add logging levels)
+            send (T.pack $ show err) clientConn
+            >> pure s
+
+          Right ( s', action ) ->
+            action >> pure s'
+
+    onDisconnect = do
+      modifyMVar_ mServer $ pure . Server.removeConnectedClient clientId
+      T.putStrLn $ "Client " <> clientId <> " disconnected"
+
+    disconnect err =
+      close (T.pack $ show err) clientConn
+
+
+--------------------------------------------------------------------------------
 app :: MVar Server -> ServerApp
 app mServer pending = do
-  connection <- WS.acceptRequest pending
-  WS.withPingThread connection 30 (return ()) $ do
-    ticket <- WS.receiveData connection
-    server <- readMVar mServer
+  clientConn <- WS.acceptRequest pending
+  WS.withPingThread clientConn 30 (pure ()) $
+    WS.receiveData clientConn <&> decodeMessage >>=
+      \case
+        Right (Authenticate clientId clientTicket) ->
+          authenticate mServer ( clientId, clientConn ) clientTicket
 
-    let client =
-          ( ticket, connection )
-
-    let disconnect err =
-          close (T.pack $ show err) client
-
-    case () of
-      _ | not $ Server.isPendingTicket ticket server ->
-            disconnect TicketInvalid
-
-      _ | Server.connectionExists ticket server ->
-            disconnect ClientExists
-
-      _ | otherwise ->
-            finally (onConnect >> onMessage) onDisconnect
-        where
-          onConnect = do
-            newServer <- modifyMVar mServer $ \s ->
-              let
-                s' = Server.removePendingTicket ticket
-                  $ Server.acceptConnection ticket connection s
-              in
-                return ( s', s' )
-
-            T.putStrLn $ "Client with ticket " <> ticket <> " connected"
-
-            send (Message.listRooms newServer) connection
-
-          onMessage = forever $ do
-            message <- decodeMessage <$> WS.receiveData connection
-
-            modifyMVar_ mServer $ \s ->
-              case message >>= handleMessage client s of
-                Left err ->
-                  -- T.putStrLn errMsg (add logging levels)
-                  send (T.pack $ show err) connection
-                  >> return s
-
-                Right ( s', action ) ->
-                  action >> return s'
-
-          onDisconnect = do
-            modifyMVar_ mServer $ return . Server.removeConnection ticket
-            T.putStrLn $ "Client with ticket " <> ticket <> " disconnected"
+        _ ->
+          close (T.pack $ show AuthFormatInvalid) clientConn

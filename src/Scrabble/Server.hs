@@ -1,26 +1,24 @@
 module Scrabble.Server
   ( Server (..)
-  , acceptConnection
-  , addPendingTicket
+  , acceptPendingClient
   , addRoom
+  , clientExists
   , clientsWho
-  , connectionExists
+  , createPendingClient
   , getClientRoom
+  , getPendingClient
   , getRoom
   , inRoom
-  , isPendingTicket
   , joinRoom
   , leaveRoom
   , new
-  , removeConnection
-  , removePendingTicket
+  , removeConnectedClient
   , removeRoom
   ) where
 
 
 --------------------------------------------------------------------------------
 import           Data.Map.Strict         (Map)
-import           Data.Set                (Set)
 import           Data.Text               (Text)
 import           Network.WebSockets      (Connection)
 import           TextShow                (showt)
@@ -28,29 +26,28 @@ import           TextShow                (showt)
 import           Scrabble.Room           (Room (..))
 
 import qualified Data.Map.Strict         as Map
-import qualified Data.Set                as Set
 
-import           Scrabble.Authentication as Auth
+import qualified Scrabble.Authentication as Auth
 
 
 --------------------------------------------------------------------------------
 data Server = Server
-  { serverClientCounter  :: Int
-  , serverClients        :: Map Text Connection
-  , serverDirectory      :: Map Text Text
-  , serverPendingClients :: Map Text Auth.Plain
-  , serverRooms          :: Map Text Room
+  { serverClientCounter    :: Int
+  , serverConnectedClients :: Map Text Connection
+  , serverDirectory        :: Map Text Text
+  , serverPendingClients   :: Map Text Auth.Plain
+  , serverRooms            :: Map Text Room
   }
 
 
 --------------------------------------------------------------------------------
 new :: Server
 new = Server
-  { serverClientCounter  = 0
-  , serverClients        = Map.empty
-  , serverDirectory      = Map.empty
-  , serverPendingClients = Map.empty
-  , serverRooms          = Map.empty
+  { serverClientCounter    = 0
+  , serverConnectedClients = Map.empty
+  , serverDirectory        = Map.empty
+  , serverPendingClients   = Map.empty
+  , serverRooms            = Map.empty
   }
 
 
@@ -62,32 +59,41 @@ createPendingClient ticket server@Server { serverClientCounter, serverPendingCli
   in
     server
       { serverClientCounter = serverClientCounter + 1
-      , serverPendingClients = Map.insert clientId ticket servePendingClients
+      , serverPendingClients = Map.insert clientId ticket serverPendingClients
       }
 
 
 --------------------------------------------------------------------------------
-acceptConnection :: Ticket -> Connection -> Server -> Server
-acceptConnection ticket conn server@Server { serverConnections } =
-  server { serverConnections = Map.insert ticket conn $ serverConnections }
+getPendingClient :: Text -> Server -> Maybe Auth.Plain
+getPendingClient clientId Server { serverPendingClients } =
+  Map.lookup clientId serverPendingClients
 
 
 --------------------------------------------------------------------------------
-removeConnection :: Ticket -> Server -> Server
-removeConnection ticket server@Server { serverConnections } =
-  server { serverConnections = Map.delete ticket $ serverConnections }
+acceptPendingClient :: Text -> Connection -> Server -> Server
+acceptPendingClient clientId clientConn server@Server { serverPendingClients, serverConnectedClients } =
+  server
+    { serverConnectedClients = Map.insert clientId clientConn serverConnectedClients
+    , serverPendingClients = Map.delete clientId serverPendingClients
+    }
 
 
 --------------------------------------------------------------------------------
-connectionExists :: Ticket -> Server -> Bool
-connectionExists ticket =
-  Map.member ticket . serverConnections
+removeConnectedClient :: Text -> Server -> Server
+removeConnectedClient clientId server@Server { serverConnectedClients } =
+  server { serverConnectedClients = Map.delete clientId serverConnectedClients }
 
 
 --------------------------------------------------------------------------------
-clientsWho :: (Ticket -> Bool) -> Server -> Map Ticket Connection
+clientExists :: Text -> Server -> Bool
+clientExists clientId =
+  Map.member clientId . serverConnectedClients
+
+
+--------------------------------------------------------------------------------
+clientsWho :: (Text -> Bool) -> Server -> Map Text Connection
 clientsWho predicate =
-  Map.filterWithKey (\k _ -> predicate k) . serverConnections
+  Map.filterWithKey (\k _ -> predicate k) . serverConnectedClients
 
 
 --------------------------------------------------------------------------------
@@ -108,24 +114,24 @@ getRoom name = Map.lookup name . serverRooms
 
 
 --------------------------------------------------------------------------------
-getClientRoom :: Ticket -> Server -> Maybe Room
-getClientRoom ticket Server { serverDirectory, serverRooms } =
-  Map.lookup ticket serverDirectory >>= flip Map.lookup serverRooms
+getClientRoom :: Text -> Server -> Maybe Room
+getClientRoom clientId Server { serverDirectory, serverRooms } =
+  Map.lookup clientId serverDirectory >>= flip Map.lookup serverRooms
 
 
 --------------------------------------------------------------------------------
-joinRoom :: Ticket -> Text -> Server -> Server
-joinRoom ticket roomName server@Server { serverDirectory } =
-  server { serverDirectory = Map.insert ticket roomName serverDirectory }
+joinRoom :: Text -> Text -> Server -> Server
+joinRoom clientId roomName server@Server { serverDirectory } =
+  server { serverDirectory = Map.insert clientId roomName serverDirectory }
 
 
 --------------------------------------------------------------------------------
-leaveRoom :: Ticket -> Server -> Server
-leaveRoom ticket server@Server { serverDirectory } =
-  server { serverDirectory = Map.delete ticket serverDirectory }
+leaveRoom :: Text -> Server -> Server
+leaveRoom clientId server@Server { serverDirectory } =
+  server { serverDirectory = Map.delete clientId serverDirectory }
 
 
 --------------------------------------------------------------------------------
-inRoom :: Ticket -> Server -> Bool
-inRoom ticket =
-  Map.member ticket . serverDirectory
+inRoom :: Text -> Server -> Bool
+inRoom clientId =
+  Map.member clientId . serverDirectory
