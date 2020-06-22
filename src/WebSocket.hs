@@ -27,6 +27,11 @@ import           Tickets (Ticket)
 
 
 --------------------------------------------------------------------------------
+type Client =
+  ( Ticket, Connection )
+
+
+--------------------------------------------------------------------------------
 data Error
   = ClientExists
   | MessageInvalid Text
@@ -42,8 +47,8 @@ data Error
 
 
 --------------------------------------------------------------------------------
-close :: Text -> Ticket -> Connection -> IO ()
-close reason ticket conn = do
+close :: Text -> Client -> IO ()
+close reason ( ticket, conn ) = do
   T.putStrLn $ T.unlines
     [ "Disconnecting client with ticket " <> ticket
     , "Reason: " <> reason
@@ -58,25 +63,47 @@ send = flip WS.sendTextData
 
 
 --------------------------------------------------------------------------------
+sendAll :: (WebSocketsData a, Traversable t) => a -> t Connection -> IO ()
+sendAll message =
+  void . traverse (send message)
+
+
+--------------------------------------------------------------------------------
+sendWhen :: WebSocketsData a => (Ticket -> Bool) -> a -> Server -> IO ()
+sendWhen predicate message =
+  sendAll message . Server.clientsWho predicate
+
+
+--------------------------------------------------------------------------------
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
-  void . traverse (send message) . Server.connections
+  sendAll message . Server.connections
 
 
 --------------------------------------------------------------------------------
 decodeMessage :: BSS.ByteString -> Either Error ClientMessage
-decodeMessage = left MessageInvalid . Message.eitherDecode
+decodeMessage =
+  left MessageInvalid . Message.eitherDecode
 
 
 --------------------------------------------------------------------------------
-handleMessage :: Connection -> Server -> ClientMessage -> Either Error Server
-handleMessage conn server message =
+handleMessage :: Client -> Server -> ClientMessage -> Either Error ( Server, IO () )
+handleMessage client@( ticket, conn ) server message =
   case message of
     NewRoom name capacity ->
       case Server.getRoom name server of
         Nothing ->
           if capacity > 0 && capacity <= Room.maxCapacity then
-            Right $ Server.addRoom (Room.new name capacity) server
+            let
+              newRoom = Room.new name capacity
+            in
+              Right
+                ( Server.addRoom newRoom server
+                , sendWhen
+                    (not . flip Server.inRoom server)
+                    (Message.newRoom newRoom)
+                    server
+                )
           else
             Left RoomInvalidCapacity
 
@@ -97,30 +124,50 @@ handleMessage conn server message =
 
              | otherwise ->
                 let
-                  player = Player.new playerName conn
-                  newRoom = Room.addPlayer player room
+                  newPlayer = Player.new playerName client
+                  newRoom = Room.addPlayer newPlayer room
                 in
-                  Right $ Server.addRoom newRoom server
+                  Right
+                    ( Server.joinRoom ticket roomName
+                      $ Server.addRoom newRoom server
+                    , send (Message.joinRoom newRoom) conn
+                    )
 
         _ ->
           Left RoomNoEntry
 
-    LeaveRoom playerName roomName ->
-      case Server.getRoom roomName server of
+    LeaveRoom ->
+      case Server.getClientRoom ticket server of
         Just room ->
-          case Room.getPlayer playerName room of
+          case Room.getPlayer ticket room of
             Just player ->
               let
                 newRoom =
                   Room.removePlayer player room
 
-                update =
+                roomName =
+                  Room.name newRoom
+
+                ( update, action ) =
                   if Room.isEmpty newRoom then
-                    Server.removeRoom
+                    ( \r ->
+                        Server.leaveRoom ticket
+                        . Server.removeRoom r
+                    , sendWhen
+                        (not . flip Server.inRoom server)
+                        (Message.removeRoom roomName)
+                        server
+                    )
                   else
-                    Server.addRoom
+                    ( Server.addRoom
+                    , return ()
+                    )
               in
-                Right $ update newRoom server
+                Right
+                  ( update newRoom server
+                  , send (Message.leaveRoom $ Room.name newRoom) conn
+                    >> action
+                  )
 
             _ -> Left RoomMissingPlayer
 
@@ -135,8 +182,11 @@ app mServer pending = do
     ticket <- WS.receiveData connection
     server <- readMVar mServer
 
+    let client =
+          ( ticket, connection )
+
     let disconnect err =
-          close (T.pack $ show err) ticket connection
+          close (T.pack $ show err) client
 
     case () of
       _ | not $ Server.isPendingTicket ticket server ->
@@ -164,14 +214,14 @@ app mServer pending = do
             message <- decodeMessage <$> WS.receiveData connection
 
             modifyMVar_ mServer $ \s ->
-              case message >>= handleMessage connection s of
+              case message >>= handleMessage client s of
                 Left err ->
                   -- T.putStrLn errMsg (add logging levels)
                   send (T.pack $ show err) connection
                   >> return s
 
-                Right s' ->
-                  return s'
+                Right ( s', action ) ->
+                  action >> return s'
 
           onDisconnect = do
             modifyMVar_ mServer $ return . Server.removeConnection ticket

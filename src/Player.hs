@@ -14,12 +14,16 @@ import           Prelude            hiding (id)
 
 
 --------------------------------------------------------------------------------
+import           Tickets (Ticket)
+
+
+--------------------------------------------------------------------------------
 data Player
   = Player
-      { connection :: Connection
-      , id         :: Int
-      , name       :: Text
-      , score      :: Int
+      { client :: ( Ticket, Connection )
+      , id     :: Int
+      , name   :: Text
+      , score  :: Int
       }
 
 
@@ -38,13 +42,13 @@ instance ToJSON Player where
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Connection -> Player
-new name conn =
+new :: Text -> ( Ticket, Connection ) -> Player
+new name client =
   Player
-    { connection = conn
-    , id         = 0 -- TODO
-    , name       = name
-    , score      = 0
+    { client = client
+    , id     = 0 -- TODO
+    , name   = name
+    , score  = 0
     }
 
 

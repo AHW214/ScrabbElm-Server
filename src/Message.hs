@@ -1,7 +1,10 @@
 module Message
   ( ClientMessage (..)
   , eitherDecode
+  , joinRoom
+  , leaveRoom
   , listRooms
+  , newRoom
   , removeRoom
   , updateRoom
   ) where
@@ -27,7 +30,7 @@ import           Server (Server (..))
 data ClientMessage
   = NewRoom Text Int
   | JoinRoom Text Text
-  | LeaveRoom Text Text
+  | LeaveRoom
 
 
 --------------------------------------------------------------------------------
@@ -35,6 +38,9 @@ instance FromJSON ClientMessage where
   parseJSON = JSON.withObject "Message" $ \v -> do
     messageType <- v .: "messageType"
     messageData <- v .: "messageData"
+
+    let withNone =
+          return
 
     let withTwo msg p1 p2 =
           msg <$> messageData .: p1
@@ -48,7 +54,7 @@ instance FromJSON ClientMessage where
         withTwo JoinRoom "playerName" "roomName"
 
       "leaveRoom" ->
-        withTwo LeaveRoom "playerName" "roomName"
+        withNone LeaveRoom
 
       msgType ->
         fail $ "Invalid message type '" ++ msgType ++ "'"
@@ -66,6 +72,13 @@ withMessage messageType messageData =
     [ "messageType" .= messageType
     , "messageData" .= messageData
     ]
+
+
+--------------------------------------------------------------------------------
+newRoom :: Room -> BSL.ByteString
+newRoom room =
+  withMessage "newRoom"
+    $ JSON.object [ "room" .= room ]
 
 
 --------------------------------------------------------------------------------
@@ -87,3 +100,17 @@ listRooms :: Server -> BSL.ByteString
 listRooms Server { rooms } =
   withMessage "listRooms"
     $ JSON.object [ "rooms" .= Map.elems rooms ]
+
+
+--------------------------------------------------------------------------------
+joinRoom :: Room -> BSL.ByteString
+joinRoom room =
+  withMessage "joinRoom"
+    $ JSON.object [ "room" .= room ]
+
+
+--------------------------------------------------------------------------------
+leaveRoom :: Text -> BSL.ByteString
+leaveRoom roomName =
+  withMessage "leaveRoom"
+    $ JSON.object [ "roomName" .= roomName ]

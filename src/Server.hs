@@ -3,9 +3,14 @@ module Server
   , acceptConnection
   , addPendingTicket
   , addRoom
+  , clientsWho
   , connectionExists
+  , getClientRoom
   , getRoom
+  , inRoom
   , isPendingTicket
+  , joinRoom
+  , leaveRoom
   , new
   , removeConnection
   , removePendingTicket
@@ -31,8 +36,9 @@ import           Tickets (Ticket)
 --------------------------------------------------------------------------------
 data Server
   = Server
-      { pendingTickets :: Set Ticket
-      , connections    :: Map Ticket Connection
+      { connections    :: Map Ticket Connection
+      , directory      :: Map Ticket Text
+      , pendingTickets :: Set Ticket
       , rooms          :: Map Text Room
       }
 
@@ -41,8 +47,9 @@ data Server
 new :: Server
 new =
   Server
-    { pendingTickets = Set.empty
-    , connections    = Map.empty
+    { connections    = Map.empty
+    , directory      = Map.empty
+    , pendingTickets = Set.empty
     , rooms          = Map.empty
     }
 
@@ -84,6 +91,12 @@ connectionExists ticket =
 
 
 --------------------------------------------------------------------------------
+clientsWho :: (Ticket -> Bool) -> Server -> Map Ticket Connection
+clientsWho predicate =
+  Map.filterWithKey (\k _ -> predicate k) . connections
+
+
+--------------------------------------------------------------------------------
 addRoom :: Room -> Server -> Server
 addRoom room@Room { Room.name } server@Server { rooms } =
   server { rooms = Map.insert name room rooms }
@@ -98,3 +111,27 @@ removeRoom Room { Room.name } server@Server { rooms } =
 --------------------------------------------------------------------------------
 getRoom :: Text -> Server -> Maybe Room
 getRoom name = Map.lookup name . rooms
+
+
+--------------------------------------------------------------------------------
+getClientRoom :: Ticket -> Server -> Maybe Room
+getClientRoom ticket Server { directory, rooms } =
+  Map.lookup ticket directory >>= flip Map.lookup rooms
+
+
+--------------------------------------------------------------------------------
+joinRoom :: Ticket -> Text -> Server -> Server
+joinRoom ticket roomName server@Server { directory } =
+  server { directory = Map.insert ticket roomName directory }
+
+
+--------------------------------------------------------------------------------
+leaveRoom :: Ticket -> Server -> Server
+leaveRoom ticket server@Server { directory } =
+  server { directory = Map.delete ticket directory }
+
+
+--------------------------------------------------------------------------------
+inRoom :: Ticket -> Server -> Bool
+inRoom ticket Server { directory } =
+  Map.member ticket directory

@@ -17,6 +17,7 @@ module Room
 --------------------------------------------------------------------------------
 import           Data.Aeson      (FromJSON, ToJSON, withObject, (.=), (.:))
 import qualified Data.Aeson      as JSON
+import qualified Data.List       as List
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe      as Maybe
@@ -25,8 +26,9 @@ import           Prelude         hiding (id)
 
 
 --------------------------------------------------------------------------------
-import           Player (Player (Player))
+import           Player  (Player (Player))
 import qualified Player
+import           Tickets (Ticket)
 
 
 --------------------------------------------------------------------------------
@@ -35,7 +37,7 @@ data Room
       { capacity :: Int
       , id       :: Int
       , name     :: Text
-      , players  :: Map Text Player
+      , players  :: Map Ticket Player
       , playing  :: Maybe Player
       }
 
@@ -113,27 +115,27 @@ isEmpty room =
 
 
 --------------------------------------------------------------------------------
-getPlayer :: Text -> Room -> Maybe Player
-getPlayer tag =
-  Map.lookup tag . players
+getPlayer :: Ticket -> Room -> Maybe Player
+getPlayer ticket =
+  Map.lookup ticket . players
 
 
 --------------------------------------------------------------------------------
 hasPlayerTag :: Text -> Room -> Bool
 hasPlayerTag tag =
-  Map.member tag . players
+  List.any ((tag ==) . Player.name) . Map.elems . players
 
 
 --------------------------------------------------------------------------------
 addPlayer :: Player -> Room -> Room
-addPlayer player@Player { Player.name } room@Room { players } =
-  room { players = Map.insert name player players }
+addPlayer player@Player { Player.client = ( ticket, _ ) } room@Room { players } =
+  room { players = Map.insert ticket player players }
 
 
 --------------------------------------------------------------------------------
 removePlayer :: Player -> Room -> Room
-removePlayer Player { Player.name } room@Room { players } =
-  room { players = Map.delete name players }
+removePlayer Player { Player.client = ( ticket, _ ) } room@Room { players } =
+  room { players = Map.delete ticket players }
 
 
 --------------------------------------------------------------------------------
