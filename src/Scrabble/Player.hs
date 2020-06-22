@@ -1,4 +1,4 @@
-module Player
+module Scrabble.Player
   ( Player (..)
   , hasName
   , new
@@ -7,51 +7,47 @@ module Player
 
 --------------------------------------------------------------------------------
 import           Data.Aeson         (ToJSON, (.=))
-import qualified Data.Aeson         as JSON
 import           Data.Text          (Text)
 import           Network.WebSockets (Connection)
-import           Prelude            hiding (id)
+
+import           Scrabble.Tickets   (Ticket)
+
+import qualified Data.Aeson         as JSON
 
 
 --------------------------------------------------------------------------------
-import           Tickets (Ticket)
-
-
---------------------------------------------------------------------------------
-data Player
-  = Player
-      { client :: ( Ticket, Connection )
-      , id     :: Int
-      , name   :: Text
-      , score  :: Int
-      }
+data Player = Player
+  { playerClient :: ( Ticket, Connection )
+  , playerId     :: Int
+  , playerName   :: Text
+  , playerScore  :: Int
+  }
 
 
 --------------------------------------------------------------------------------
 instance ToJSON Player where
-  toJSON Player { name, score } =
+  toJSON Player { playerName, playerScore } =
     JSON.object
-      [ "name"  .= name
-      , "score" .= score
+      [ "playerName"  .= playerName
+      , "playerScore" .= playerScore
       ]
 
-  toEncoding Player { name, score } =
+  toEncoding Player { playerName, playerScore } =
     JSON.pairs
-      $ "name"   .= name
-      <> "score" .= score
+      $  "playerName"  .= playerName
+      <> "playerScore" .= playerScore
 
 
 --------------------------------------------------------------------------------
 new :: Text -> ( Ticket, Connection ) -> Player
-new name client =
-  Player
-    { client = client
-    , id     = 0 -- TODO
-    , name   = name
-    , score  = 0
-    }
+new name client = Player
+  { playerClient = client
+  , playerId     = 0 -- TODO
+  , playerName   = name
+  , playerScore  = 0
+  }
 
 
 --------------------------------------------------------------------------------
 hasName :: Text -> Player -> Bool
-hasName n = (n ==) . name
+hasName n = (n ==) . playerName
