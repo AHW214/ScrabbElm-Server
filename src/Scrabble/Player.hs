@@ -10,14 +10,12 @@ import           Data.Aeson         (ToJSON, (.=))
 import           Data.Text          (Text)
 import           Network.WebSockets (Connection)
 
-import           Scrabble.Tickets   (Ticket)
-
 import qualified Data.Aeson         as JSON
 
 
 --------------------------------------------------------------------------------
 data Player = Player
-  { playerClient :: ( Ticket, Connection )
+  { playerClient :: ( Text, Connection )
   , playerId     :: Int
   , playerName   :: Text
   , playerScore  :: Int
@@ -39,7 +37,7 @@ instance ToJSON Player where
 
 
 --------------------------------------------------------------------------------
-new :: Text -> ( Ticket, Connection ) -> Player
+new :: Text -> ( Text, Connection ) -> Player
 new name client = Player
   { playerClient = client
   , playerId     = 0 -- TODO

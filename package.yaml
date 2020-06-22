@@ -13,6 +13,7 @@ description: Please see the README on GitHub at <https://github.com/AHW214/Scrab
 
 dependencies:
 - base >= 4.7 && < 5
+- crypto-simple
 - http-types
 - warp
 - wai
@@ -25,6 +26,7 @@ dependencies:
 - bytestring
 - containers
 - text
+- text-show
 
 default-extensions:
 - DeriveFoldable

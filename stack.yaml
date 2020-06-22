@@ -3,3 +3,6 @@ compiler: ghc-8.10.1
 
 packages:
 - .
+
+extra-deps:
+- crypto-simple-0.1.0.0

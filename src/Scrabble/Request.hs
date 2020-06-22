@@ -5,8 +5,6 @@ module Scrabble.Request
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent        (MVar, modifyMVar_)
-import           Data.ByteString.Lazy      (ByteString)
-import           Data.Text                 (Text)
 import           Network.HTTP.Types        (status200, status501)
 import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
@@ -14,11 +12,8 @@ import           Network.Wai               (Application, requestMethod,
 
 import           Scrabble.Server           (Server)
 
-import qualified Data.Text.Lazy            as TL
-import qualified Data.Text.Lazy.Encoding   as TL
-
+import qualified Scrabble.Authentication   as Auth
 import qualified Scrabble.Server           as Server
-import qualified Scrabble.Tickets          as Tickets
 
 
 --------------------------------------------------------------------------------
@@ -32,18 +27,14 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        ticket <- Tickets.new 10
-        modifyMVar_ mServer $ pure . Server.addPendingTicket ticket
+        ( plain, crypt ) <- Auth.new "CHANGE ME" 10
 
-        pure ( status200, getHeaders, byteStringLazy ticket )
+        modifyMVar_ mServer $ pure . Server.createPendingClient plain
+
+        pure ( status200, getHeaders, Auth.cryptToBSL crypt )
 
       _ ->
         let unsupportedHeaders = [ ( hContentType, "text/plain" ) ] in
         pure ( status501, unsupportedHeaders, "Operation unsupported" )
 
   response $ responseLBS status headers text
-
-
---------------------------------------------------------------------------------
-byteStringLazy :: Text -> ByteString
-byteStringLazy = TL.encodeUtf8 . TL.fromStrict

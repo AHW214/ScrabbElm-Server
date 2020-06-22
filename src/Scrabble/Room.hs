@@ -20,7 +20,6 @@ import           Data.Map.Strict  (Map)
 import           Data.Text        (Text)
 
 import           Scrabble.Player  (Player (..))
-import           Scrabble.Tickets (Ticket)
 
 import qualified Data.Aeson       as JSON
 import qualified Data.List        as List
@@ -33,7 +32,7 @@ data Room = Room
   { roomCapacity :: Int
   , roomId       :: Int
   , roomName     :: Text
-  , roomPlayers  :: Map Ticket Player
+  , roomPlayers  :: Map Text Player
   , roomPlaying  :: Maybe Player
   }
 
@@ -110,9 +109,9 @@ isEmpty room =
 
 
 --------------------------------------------------------------------------------
-getPlayer :: Ticket -> Room -> Maybe Player
-getPlayer ticket =
-  Map.lookup ticket . roomPlayers
+getPlayer :: Text -> Room -> Maybe Player
+getPlayer name =
+  Map.lookup name . roomPlayers
 
 
 --------------------------------------------------------------------------------

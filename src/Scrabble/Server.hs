@@ -19,23 +19,26 @@ module Scrabble.Server
 
 
 --------------------------------------------------------------------------------
-import           Data.Map.Strict    (Map)
-import           Data.Set           (Set)
-import           Data.Text          (Text)
-import           Network.WebSockets (Connection)
+import           Data.Map.Strict         (Map)
+import           Data.Set                (Set)
+import           Data.Text               (Text)
+import           Network.WebSockets      (Connection)
+import           TextShow                (showt)
 
-import qualified Data.Map.Strict    as Map
-import qualified Data.Set           as Set
+import           Scrabble.Room           (Room (..))
 
-import           Scrabble.Room      (Room (..))
-import           Scrabble.Tickets   (Ticket)
+import qualified Data.Map.Strict         as Map
+import qualified Data.Set                as Set
+
+import           Scrabble.Authentication as Auth
 
 
 --------------------------------------------------------------------------------
 data Server = Server
-  { serverConnections    :: Map Ticket Connection
-  , serverDirectory      :: Map Ticket Text
-  , serverPendingTickets :: Set Ticket
+  { serverClientCounter  :: Int
+  , serverClients        :: Map Text Connection
+  , serverDirectory      :: Map Text Text
+  , serverPendingClients :: Map Text Auth.Plain
   , serverRooms          :: Map Text Room
   }
 
@@ -43,29 +46,24 @@ data Server = Server
 --------------------------------------------------------------------------------
 new :: Server
 new = Server
-  { serverConnections    = Map.empty
+  { serverClientCounter  = 0
+  , serverClients        = Map.empty
   , serverDirectory      = Map.empty
-  , serverPendingTickets = Set.empty
+  , serverPendingClients = Map.empty
   , serverRooms          = Map.empty
   }
 
 
 --------------------------------------------------------------------------------
-addPendingTicket :: Ticket -> Server -> Server
-addPendingTicket ticket server@Server { serverPendingTickets } =
-  server { serverPendingTickets = Set.insert ticket $ serverPendingTickets }
-
-
---------------------------------------------------------------------------------
-removePendingTicket :: Ticket -> Server -> Server
-removePendingTicket ticket server@Server { serverPendingTickets } =
-  server { serverPendingTickets = Set.delete ticket $ serverPendingTickets }
-
-
---------------------------------------------------------------------------------
-isPendingTicket :: Ticket -> Server -> Bool
-isPendingTicket ticket =
-  Set.member ticket . serverPendingTickets
+createPendingClient :: Auth.Plain -> Server -> Server
+createPendingClient ticket server@Server { serverClientCounter, serverPendingClients } =
+  let
+    clientId = "client-" <> showt serverClientCounter
+  in
+    server
+      { serverClientCounter = serverClientCounter + 1
+      , serverPendingClients = Map.insert clientId ticket servePendingClients
+      }
 
 
 --------------------------------------------------------------------------------

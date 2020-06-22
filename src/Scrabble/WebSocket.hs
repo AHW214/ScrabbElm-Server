@@ -4,27 +4,27 @@ module Scrabble.WebSocket
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow      (left)
-import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
-import           Control.Exception  (finally)
-import           Control.Monad      (forever, void)
-import           Data.Text          (Text)
-import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
+import           Control.Arrow           (left)
+import           Control.Concurrent      (MVar, modifyMVar, modifyMVar_, readMVar)
+import           Control.Exception       (finally)
+import           Control.Monad           (forever, void)
+import           Data.Text               (Text)
+import           Network.WebSockets      (Connection, WebSocketsData, ServerApp)
 
-import           Scrabble.Message   (ClientMessage (..))
-import           Scrabble.Room      (Room (..))
-import           Scrabble.Server    (Server (..))
-import           Scrabble.Tickets   (Ticket)
+import           Scrabble.Message        (ClientMessage (..))
+import           Scrabble.Room           (Room (..))
+import           Scrabble.Server         (Server (..))
 
-import           Data.ByteString    as BSS
-import qualified Data.Text          as T
-import qualified Data.Text.IO       as T
-import qualified Network.WebSockets as WS
+import qualified Data.ByteString         as BSS
+import qualified Data.Text               as T
+import qualified Data.Text.IO            as T
+import qualified Network.WebSockets      as WS
 
-import qualified Scrabble.Message   as Message
-import qualified Scrabble.Player    as Player
-import qualified Scrabble.Room      as Room
-import qualified Scrabble.Server    as Server
+import qualified Scrabble.Authentication as Auth
+import qualified Scrabble.Message        as Message
+import qualified Scrabble.Player         as Player
+import qualified Scrabble.Room           as Room
+import qualified Scrabble.Server         as Server
 
 
 --------------------------------------------------------------------------------
