@@ -1,4 +1,4 @@
-module Message
+module Scrabble.Message
   ( ClientMessage (..)
   , eitherDecode
   , joinRoom
@@ -13,17 +13,16 @@ module Message
 --------------------------------------------------------------------------------
 import           Control.Arrow        (left)
 import           Data.Aeson           (FromJSON, Value, (.=), (.:))
+import           Data.Text            (Text)
+
+import           Scrabble.Room        (Room)
+import           Scrabble.Server      (Server (..))
+
 import qualified Data.Aeson           as JSON
 import qualified Data.ByteString      as BSS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict      as Map
-import           Data.Text            (Text)
 import qualified Data.Text            as T
-
-
---------------------------------------------------------------------------------
-import           Room   (Room)
-import           Server (Server (..))
 
 
 --------------------------------------------------------------------------------
@@ -39,8 +38,7 @@ instance FromJSON ClientMessage where
     messageType <- v .: "messageType"
     messageData <- v .: "messageData"
 
-    let withNone =
-          return
+    let withNone = pure
 
     let withTwo msg p1 p2 =
           msg <$> messageData .: p1
@@ -48,7 +46,7 @@ instance FromJSON ClientMessage where
 
     case messageType of
       "newRoom" ->
-        withTwo NewRoom "name" "capacity"
+        withTwo NewRoom "roomName" "roomCapacity"
 
       "joinRoom" ->
         withTwo JoinRoom "playerName" "roomName"
@@ -97,9 +95,9 @@ removeRoom roomName =
 
 --------------------------------------------------------------------------------
 listRooms :: Server -> BSL.ByteString
-listRooms Server { rooms } =
+listRooms Server { serverRooms } =
   withMessage "listRooms"
-    $ JSON.object [ "rooms" .= Map.elems rooms ]
+    $ JSON.object [ "rooms" .= Map.elems serverRooms ]
 
 
 --------------------------------------------------------------------------------

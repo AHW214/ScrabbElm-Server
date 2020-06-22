@@ -1,28 +1,20 @@
-module Tickets
+module Scrabble.Tickets
   ( Ticket
-  , empty
   , new
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Text     (Text)
-import qualified Data.Text     as T
-import           System.Random (getStdRandom)
+import           Data.Text       (Text)
+import           System.Random   (getStdRandom)
+
+import           Scrabble.Random (randomRSequence)
+
+import qualified Data.Text       as T
 
 
 --------------------------------------------------------------------------------
-import           Random (randomRSequence)
-
-
---------------------------------------------------------------------------------
-type Ticket =
-  Text
-
-
---------------------------------------------------------------------------------
-empty :: [ Ticket ]
-empty = []
+type Ticket = Text
 
 
 --------------------------------------------------------------------------------

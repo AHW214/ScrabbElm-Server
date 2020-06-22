@@ -1,4 +1,4 @@
-module Tile
+module Scrabble.Tile
   ( Tile
   , bagFromString
   , defaultBag
@@ -9,15 +9,14 @@ module Tile
 --------------------------------------------------------------------------------
 import           Data.Aeson      (ToJSON (toJSON))
 import           Data.Char       (ord)
-import qualified Data.List       as List
 import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import           Data.Maybe      (fromMaybe)
 import           System.Random   (getStdRandom)
 
+import           Scrabble.Random (shuffleList)
 
---------------------------------------------------------------------------------
-import           Random (shuffleList)
+import qualified Data.List       as List
+import qualified Data.Map.Strict as Map
 
 
 --------------------------------------------------------------------------------
@@ -40,7 +39,10 @@ instance ToJSON Tile where
 --------------------------------------------------------------------------------
 points :: Map Char Int
 points =
-  List.foldl' (\mp ( pts, cs ) -> List.foldl' (withPoints pts) mp cs) Map.empty groups
+  List.foldl'
+    (\mp ( pts, cs ) -> List.foldl' (withPoints pts) mp cs)
+    Map.empty
+    groups
   where
     withPoints pts mp chr =
       Map.insert chr pts mp
@@ -84,7 +86,7 @@ fromChar c =
 
 
 --------------------------------------------------------------------------------
-defaultDistribution :: [ (Char, Int) ]
+defaultDistribution :: [ ( Char, Int ) ]
 defaultDistribution =
   [ ( 'a', 9 ), ( 'b', 2 ), ( 'c', 2 ), ( 'd', 4 ), ( 'e', 12 )
   , ( 'f', 2 ), ( 'g', 3 ), ( 'h', 2 ), ( 'i', 9 ), ( 'j', 1 )

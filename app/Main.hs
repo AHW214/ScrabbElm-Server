@@ -4,18 +4,17 @@ module Main where
 --------------------------------------------------------------------------------
 import           Control.Concurrent             (newMVar)
 import           Data.Maybe                     (fromMaybe, listToMaybe)
-import qualified Network.Wai.Handler.Warp       as Warp
 import           Network.Wai.Handler.WebSockets (websocketsOr)
 import           Network.Wai.Middleware.Cors    (simpleCors)
-import qualified Network.WebSockets             as WS
 import           System.Environment             (getArgs)
 import           Text.Read                      (readMaybe)
 
+import qualified Network.Wai.Handler.Warp       as Warp
+import qualified Network.WebSockets             as WS
 
---------------------------------------------------------------------------------
-import qualified Request
-import qualified Server
-import qualified WebSocket
+import qualified Scrabble.Request               as Request
+import qualified Scrabble.Server                as Server
+import qualified Scrabble.WebSocket             as WebSocket
 
 
 --------------------------------------------------------------------------------

@@ -1,29 +1,30 @@
-module WebSocket
+module Scrabble.WebSocket
   ( app
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow        (left)
-import           Control.Concurrent   (MVar, modifyMVar, modifyMVar_, readMVar)
-import           Control.Exception    (finally)
-import           Control.Monad        (forever, void)
-import           Data.ByteString      as BSS
-import           Data.Text            (Text)
-import qualified Data.Text            as T
-import qualified Data.Text.IO         as T
-import           Network.WebSockets   (Connection, WebSocketsData, ServerApp)
-import qualified Network.WebSockets   as WS
+import           Control.Arrow      (left)
+import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
+import           Control.Exception  (finally)
+import           Control.Monad      (forever, void)
+import           Data.Text          (Text)
+import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
 
+import           Scrabble.Message   (ClientMessage (..))
+import           Scrabble.Room      (Room (..))
+import           Scrabble.Server    (Server (..))
+import           Scrabble.Tickets   (Ticket)
 
---------------------------------------------------------------------------------
-import           Message (ClientMessage (..))
-import qualified Message
-import qualified Player
-import qualified Room
-import           Server  (Server)
-import qualified Server
-import           Tickets (Ticket)
+import           Data.ByteString    as BSS
+import qualified Data.Text          as T
+import qualified Data.Text.IO       as T
+import qualified Network.WebSockets as WS
+
+import qualified Scrabble.Message   as Message
+import qualified Scrabble.Player    as Player
+import qualified Scrabble.Room      as Room
+import qualified Scrabble.Server    as Server
 
 
 --------------------------------------------------------------------------------
@@ -77,7 +78,7 @@ sendWhen predicate message =
 --------------------------------------------------------------------------------
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
-  sendAll message . Server.connections
+  sendAll message . serverConnections
 
 
 --------------------------------------------------------------------------------
@@ -145,8 +146,8 @@ handleMessage client@( ticket, conn ) server message =
                 newRoom =
                   Room.removePlayer player room
 
-                roomName =
-                  Room.name newRoom
+                name =
+                  roomName newRoom
 
                 ( update, action ) =
                   if Room.isEmpty newRoom then
@@ -155,7 +156,7 @@ handleMessage client@( ticket, conn ) server message =
                         . Server.removeRoom r
                     , sendWhen
                         (not . flip Server.inRoom server)
-                        (Message.removeRoom roomName)
+                        (Message.removeRoom name)
                         server
                     )
                   else
@@ -165,7 +166,7 @@ handleMessage client@( ticket, conn ) server message =
               in
                 Right
                   ( update newRoom server
-                  , send (Message.leaveRoom $ Room.name newRoom) conn
+                  , send (Message.leaveRoom name) conn
                     >> action
                   )
 

@@ -1,6 +1,6 @@
 {- https://wiki.haskell.org/Random_shuffle -}
 
-module Random
+module Scrabble.Random
   ( randomSequence
   , randomRSequence
   , shuffleList
@@ -9,17 +9,22 @@ module Random
 
 --------------------------------------------------------------------------------
 import           Data.Map      (Map, (!))
-import qualified Data.Map      as Map
 import           System.Random (Random, RandomGen, random, randomR)
+
+import qualified Data.Map      as Map
 
 
 --------------------------------------------------------------------------------
-fisherYatesStep :: RandomGen g => ( Map Int a, g ) -> ( Int, a ) -> ( Map Int a, g )
+fisherYatesStep
+  :: RandomGen g
+  => ( Map Int a, g )
+  -> ( Int, a )
+  -> ( Map Int a, g )
 fisherYatesStep ( m, gen ) ( i, x ) =
   ( Map.insert j x $ Map.insert i (m ! j) m, gen' )
   where
     ( j, gen' ) =
-      randomR (0, i) gen
+      randomR ( 0, i ) gen
 
 
 --------------------------------------------------------------------------------
