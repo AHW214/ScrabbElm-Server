@@ -23,7 +23,7 @@ app mServer request response = do
     case requestMethod request of
       "GET" -> do
         let getHeaders =
-              [ ( hContentType, "text/plain" )
+              [ ( hContentType, "application/octet-stream" )
               , ( hCacheControl, "no-cache" )
               ]
 
