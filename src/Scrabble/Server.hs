@@ -50,15 +50,17 @@ new = Server
 
 
 --------------------------------------------------------------------------------
-createPendingClient :: Text -> Server -> Server
+createPendingClient :: Text -> Server -> ( Server, Text )
 createPendingClient ticket server@Server { serverClientCounter, serverPendingClients } =
   let
     clientId = "client-" <> showt serverClientCounter
   in
-    server
-      { serverClientCounter = serverClientCounter + 1
-      , serverPendingClients = Map.insert clientId ticket serverPendingClients
-      }
+    ( server
+        { serverClientCounter = serverClientCounter + 1
+        , serverPendingClients = Map.insert clientId ticket serverPendingClients
+        }
+    , clientId
+    )
 
 
 --------------------------------------------------------------------------------

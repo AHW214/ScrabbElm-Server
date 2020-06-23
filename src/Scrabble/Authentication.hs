@@ -32,8 +32,8 @@ ticket =
 
 
 --------------------------------------------------------------------------------
-jwt :: ByteString -> Text -> NominalDiffTime -> IO Text
-jwt key message seconds =
+jwt :: NominalDiffTime -> ByteString -> [ ( Text, JSON.Value ) ] -> IO Text
+jwt seconds key claims =
   JWT.encodeSigned secret header . makeClaims <$> Time.getCurrentTime
   where
     secret :: Signer
@@ -51,8 +51,7 @@ jwt key message seconds =
       , sub = JWT.stringOrURI "ScrabbElm-Client"
       , exp = expirationDate now
       , unregisteredClaims =
-          ClaimsMap $ Map.fromList
-            [ ( "tik", JSON.String message ) ]
+          ClaimsMap $ Map.fromList claims
       }
 
     expirationDate :: UTCTime -> Maybe NumericDate

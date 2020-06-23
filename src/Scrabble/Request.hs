@@ -4,7 +4,7 @@ module Scrabble.Request
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent        (MVar, modifyMVar_)
+import           Control.Concurrent        (MVar, modifyMVar)
 import           Data.ByteString.Lazy      (ByteString)
 import           Data.Text                 (Text)
 import           Network.HTTP.Types        (status200, status501)
@@ -14,6 +14,7 @@ import           Network.Wai               (Application, requestMethod,
 
 import           Scrabble.Server           (Server)
 
+import qualified Data.Aeson                as JSON
 import qualified Data.Text.Lazy            as T
 import qualified Data.Text.Lazy.Encoding   as T
 
@@ -33,9 +34,12 @@ app mServer request response = do
               ]
 
         ticket <- Auth.ticket 10
-        jwt <- Auth.jwt "CHANGE ME LATER ALSO ADD CONFIG" ticket 1
+        clientId <- modifyMVar mServer $ pure . Server.createPendingClient ticket
 
-        modifyMVar_ mServer $ pure . Server.createPendingClient ticket
+        jwt <- Auth.jwt 1 "CHANGE ME LATER ALSO ADD CONFIG"
+                [ ( "tik", JSON.String ticket )
+                , ( "cid", JSON.String clientId )
+                ]
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
