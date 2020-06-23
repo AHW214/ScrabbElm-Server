@@ -8,6 +8,7 @@ import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar,
                                             modifyMVar_, threadDelay)
 import           Data.ByteString.Lazy      (ByteString)
 import           Data.Text                 (Text)
+import           Data.Time.Clock           (NominalDiffTime)
 import           Network.HTTP.Types        (status200, status501)
 import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
@@ -18,6 +19,7 @@ import           Scrabble.Server           (Server)
 import qualified Data.Aeson                as JSON
 import qualified Data.Text.Lazy            as T
 import qualified Data.Text.Lazy.Encoding   as T
+import qualified Data.Time.Clock           as Time
 
 import qualified Scrabble.Authentication   as Auth
 import qualified Scrabble.Server           as Server
@@ -44,7 +46,7 @@ app mServer request response = do
                 , ( "cid", JSON.String clientId )
                 ]
 
-        timeOutPendingClient 5000000 clientId mServer
+        timeOutPendingClient (nominalToMicroseconds delay) clientId mServer
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
@@ -60,6 +62,11 @@ timeOutPendingClient :: Int -> Text -> MVar Server -> IO ThreadId
 timeOutPendingClient timeout clientId mServer =
   forkIO $ threadDelay timeout
     >> modifyMVar_ mServer (pure . Server.removePendingClient clientId)
+
+
+--------------------------------------------------------------------------------
+nominalToMicroseconds :: NominalDiffTime -> Int
+nominalToMicroseconds = floor . (1e6 *) . Time.nominalDiffTimeToSeconds
 
 
 --------------------------------------------------------------------------------
