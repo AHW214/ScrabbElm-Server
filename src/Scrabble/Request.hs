@@ -30,7 +30,7 @@ app mServer request response = do
     case requestMethod request of
       "GET" -> do
         let getHeaders =
-              [ ( hContentType, "text/plain" )
+              [ ( hContentType, "text/plain; charset=utf-8" )
               , ( hCacheControl, "no-cache" )
               ]
 
@@ -44,7 +44,7 @@ app mServer request response = do
                 , ( "cid", JSON.String clientId )
                 ]
 
-        timeOutPendingClient 5 clientId mServer
+        timeOutPendingClient 5000000 clientId mServer
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
