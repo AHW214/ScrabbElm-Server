@@ -24,6 +24,7 @@ import           Data.Text               (Text)
 import           Network.WebSockets      (Connection)
 import           TextShow                (showt)
 
+import           Scrabble.Config         (Config)
 import           Scrabble.Room           (Room (..))
 
 import qualified Data.Map.Strict         as Map
@@ -32,6 +33,7 @@ import qualified Data.Map.Strict         as Map
 --------------------------------------------------------------------------------
 data Server = Server
   { serverClientCounter    :: Int
+  , serverConfig           :: Config
   , serverConnectedClients :: Map Text Connection
   , serverDirectory        :: Map Text Text
   , serverPendingClients   :: Map Text Text
@@ -40,9 +42,10 @@ data Server = Server
 
 
 --------------------------------------------------------------------------------
-new :: Server
-new = Server
+new :: Config -> Server
+new config = Server
   { serverClientCounter    = 0
+  , serverConfig           = config
   , serverConnectedClients = Map.empty
   , serverDirectory        = Map.empty
   , serverPendingClients   = Map.empty
