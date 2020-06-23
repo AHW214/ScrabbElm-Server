@@ -4,9 +4,11 @@ module Scrabble.Request
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent        (MVar, modifyMVar_)
+import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar,
+                                            modifyMVar_, threadDelay)
 import           Data.ByteString.Lazy      (ByteString)
 import           Data.Text                 (Text)
+import           Data.Time.Clock           (NominalDiffTime)
 import           Network.HTTP.Types        (status200, status501)
 import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
@@ -14,11 +16,13 @@ import           Network.Wai               (Application, requestMethod,
 
 import           Scrabble.Server           (Server)
 
-import qualified Data.Text.Lazy            as TL
-import qualified Data.Text.Lazy.Encoding   as TL
+import qualified Data.Aeson                as JSON
+import qualified Data.Text.Lazy            as T
+import qualified Data.Text.Lazy.Encoding   as T
+import qualified Data.Time.Clock           as Time
 
+import qualified Scrabble.Authentication   as Auth
 import qualified Scrabble.Server           as Server
-import qualified Scrabble.Tickets          as Tickets
 
 
 --------------------------------------------------------------------------------
@@ -28,14 +32,23 @@ app mServer request response = do
     case requestMethod request of
       "GET" -> do
         let getHeaders =
-              [ ( hContentType, "text/plain" )
+              [ ( hContentType, "text/plain; charset=utf-8" )
               , ( hCacheControl, "no-cache" )
               ]
 
-        ticket <- Tickets.new 10
-        modifyMVar_ mServer $ pure . Server.addPendingTicket ticket
+        let delay = 5
 
-        pure ( status200, getHeaders, byteStringLazy ticket )
+        ticket <- Auth.ticket 10
+        clientId <- modifyMVar mServer $ pure . Server.createPendingClient ticket
+
+        jwt <- Auth.jwt delay "CHANGE ME LATER ALSO ADD CONFIG"
+                [ ( "tik", JSON.String ticket )
+                , ( "cid", JSON.String clientId )
+                ]
+
+        timeOutPendingClient (nominalToMicroseconds delay) clientId mServer
+
+        pure ( status200, getHeaders, txtToBsl jwt )
 
       _ ->
         let unsupportedHeaders = [ ( hContentType, "text/plain" ) ] in
@@ -45,5 +58,17 @@ app mServer request response = do
 
 
 --------------------------------------------------------------------------------
-byteStringLazy :: Text -> ByteString
-byteStringLazy = TL.encodeUtf8 . TL.fromStrict
+timeOutPendingClient :: Int -> Text -> MVar Server -> IO ThreadId
+timeOutPendingClient timeout clientId mServer =
+  forkIO $ threadDelay timeout
+    >> modifyMVar_ mServer (pure . Server.removePendingClient clientId)
+
+
+--------------------------------------------------------------------------------
+nominalToMicroseconds :: NominalDiffTime -> Int
+nominalToMicroseconds = floor . (1e6 *) . Time.nominalDiffTimeToSeconds
+
+
+--------------------------------------------------------------------------------
+txtToBsl :: Text -> ByteString
+txtToBsl = T.encodeUtf8 . T.fromStrict
