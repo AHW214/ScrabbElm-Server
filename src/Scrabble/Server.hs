@@ -13,6 +13,7 @@ module Scrabble.Server
   , leaveRoom
   , new
   , removeConnectedClient
+  , removePendingClient
   , removeRoom
   ) where
 
@@ -76,6 +77,12 @@ acceptPendingClient clientId clientConn server@Server { serverPendingClients, se
     { serverConnectedClients = Map.insert clientId clientConn serverConnectedClients
     , serverPendingClients = Map.delete clientId serverPendingClients
     }
+
+
+--------------------------------------------------------------------------------
+removePendingClient :: Text -> Server -> Server
+removePendingClient clientId server@Server { serverPendingClients } =
+  server { serverPendingClients = Map.delete clientId serverPendingClients }
 
 
 --------------------------------------------------------------------------------

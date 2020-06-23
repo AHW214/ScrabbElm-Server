@@ -4,7 +4,8 @@ module Scrabble.Request
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent        (MVar, modifyMVar)
+import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar,
+                                            modifyMVar_, threadDelay)
 import           Data.ByteString.Lazy      (ByteString)
 import           Data.Text                 (Text)
 import           Network.HTTP.Types        (status200, status501)
@@ -33,13 +34,17 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
+        let delay = 5
+
         ticket <- Auth.ticket 10
         clientId <- modifyMVar mServer $ pure . Server.createPendingClient ticket
 
-        jwt <- Auth.jwt 1 "CHANGE ME LATER ALSO ADD CONFIG"
+        jwt <- Auth.jwt delay "CHANGE ME LATER ALSO ADD CONFIG"
                 [ ( "tik", JSON.String ticket )
                 , ( "cid", JSON.String clientId )
                 ]
+
+        timeOutPendingClient 5 clientId mServer
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
@@ -48,6 +53,13 @@ app mServer request response = do
         pure ( status501, unsupportedHeaders, "Operation unsupported" )
 
   response $ responseLBS status headers text
+
+
+--------------------------------------------------------------------------------
+timeOutPendingClient :: Int -> Text -> MVar Server -> IO ThreadId
+timeOutPendingClient timeout clientId mServer =
+  forkIO $ threadDelay timeout
+    >> modifyMVar_ mServer (pure . Server.removePendingClient clientId)
 
 
 --------------------------------------------------------------------------------
