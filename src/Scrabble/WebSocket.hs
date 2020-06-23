@@ -21,7 +21,6 @@ import qualified Data.Text               as T
 import qualified Data.Text.IO            as T
 import qualified Network.WebSockets      as WS
 
-import qualified Scrabble.Authentication as Auth
 import qualified Scrabble.Message        as Message
 import qualified Scrabble.Player         as Player
 import qualified Scrabble.Room           as Room
@@ -176,9 +175,12 @@ handleMessage client@( clientId, clientConn ) server message =
 
         _ -> Left RoomNoEntry
 
+    _ ->
+      Right ( server, pure () )
+
 
 --------------------------------------------------------------------------------
-authenticate :: MVar Server -> Client -> Auth.Plain -> IO ()
+authenticate :: MVar Server -> Client -> Text -> IO ()
 authenticate mServer client@( clientId, clientConn ) clientTicket =
   readMVar mServer <&> Server.getPendingClient clientId >>=
     \case

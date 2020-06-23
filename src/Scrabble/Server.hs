@@ -27,15 +27,13 @@ import           Scrabble.Room           (Room (..))
 
 import qualified Data.Map.Strict         as Map
 
-import qualified Scrabble.Authentication as Auth
-
 
 --------------------------------------------------------------------------------
 data Server = Server
   { serverClientCounter    :: Int
   , serverConnectedClients :: Map Text Connection
   , serverDirectory        :: Map Text Text
-  , serverPendingClients   :: Map Text Auth.Plain
+  , serverPendingClients   :: Map Text Text
   , serverRooms            :: Map Text Room
   }
 
@@ -52,7 +50,7 @@ new = Server
 
 
 --------------------------------------------------------------------------------
-createPendingClient :: Auth.Plain -> Server -> Server
+createPendingClient :: Text -> Server -> Server
 createPendingClient ticket server@Server { serverClientCounter, serverPendingClients } =
   let
     clientId = "client-" <> showt serverClientCounter
@@ -64,7 +62,7 @@ createPendingClient ticket server@Server { serverClientCounter, serverPendingCli
 
 
 --------------------------------------------------------------------------------
-getPendingClient :: Text -> Server -> Maybe Auth.Plain
+getPendingClient :: Text -> Server -> Maybe Text
 getPendingClient clientId Server { serverPendingClients } =
   Map.lookup clientId serverPendingClients
 

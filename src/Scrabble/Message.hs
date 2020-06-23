@@ -24,12 +24,10 @@ import qualified Data.ByteString.Lazy    as BSL
 import qualified Data.Map.Strict         as Map
 import qualified Data.Text               as T
 
-import qualified Scrabble.Authentication as Auth
-
 
 --------------------------------------------------------------------------------
 data ClientMessage
-  = Authenticate Text Auth.Plain
+  = Authenticate Text Text
   | NewRoom Text Int
   | JoinRoom Text Text
   | LeaveRoom
