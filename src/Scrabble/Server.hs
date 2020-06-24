@@ -1,5 +1,6 @@
 module Scrabble.Server
   ( Server (..)
+  , PendingParams (..)
   , acceptPendingClient
   , addRoom
   , clientExists
@@ -19,52 +20,77 @@ module Scrabble.Server
 
 
 --------------------------------------------------------------------------------
-import           Data.Map.Strict         (Map)
-import           Data.Text               (Text)
-import           Network.WebSockets      (Connection)
-import           TextShow                (showt)
+import           Data.ByteString    (ByteString)
+import           Data.Map.Strict    (Map)
+import           Data.Text          (Text)
+import           Data.Time.Clock    (NominalDiffTime)
+import           Network.WebSockets (Connection)
+import           TextShow           (showt)
 
-import           Scrabble.Config         (Config)
-import           Scrabble.Room           (Room (..))
+import           Scrabble.Config    (Config (..))
+import           Scrabble.Room      (Room (..))
 
-import qualified Data.Map.Strict         as Map
+import qualified Data.Map.Strict    as Map
+import qualified Data.Text.Encoding as T
 
 
 --------------------------------------------------------------------------------
 data Server = Server
-  { serverClientCounter    :: Int
-  , serverConfig           :: Config
+  { serverAuthKey          :: ByteString
+  , serverClientCounter    :: Int
   , serverConnectedClients :: Map Text Connection
   , serverDirectory        :: Map Text Text
   , serverPendingClients   :: Map Text Text
+  , serverPendingTimeout   :: NominalDiffTime
   , serverRooms            :: Map Text Room
   }
 
 
 --------------------------------------------------------------------------------
-new :: Config -> Server
-new config = Server
-  { serverClientCounter    = 0
-  , serverConfig           = config
-  , serverConnectedClients = Map.empty
-  , serverDirectory        = Map.empty
-  , serverPendingClients   = Map.empty
-  , serverRooms            = Map.empty
+data PendingParams = PendingParams
+  { pendingAuthKey  :: ByteString
+  , pendingClientId :: Text
+  , pendingTimeout  :: NominalDiffTime
   }
 
 
 --------------------------------------------------------------------------------
-createPendingClient :: Text -> Server -> ( Server, Text )
-createPendingClient ticket server@Server { serverClientCounter, serverPendingClients } =
-  let
-    clientId = "client-" <> showt serverClientCounter
-  in
-    ( server
-        { serverClientCounter = serverClientCounter + 1
-        , serverPendingClients = Map.insert clientId ticket serverPendingClients
-        }
-    , clientId
-    )
+new :: Config -> Server
+new Config { configAuthKey, configPendingTimeout } =
+  Server
+    { serverAuthKey          = T.encodeUtf8 configAuthKey
+    , serverClientCounter    = 0
+    , serverConnectedClients = Map.empty
+    , serverDirectory        = Map.empty
+    , serverPendingClients   = Map.empty
+    , serverPendingTimeout   = configPendingTimeout
+    , serverRooms            = Map.empty
+    }
+
+
+--------------------------------------------------------------------------------
+createPendingClient :: Text -> Server -> ( Server, PendingParams )
+createPendingClient
+  ticket
+  server@Server
+    { serverAuthKey
+    , serverClientCounter
+    , serverPendingClients
+    , serverPendingTimeout
+    }
+  = let
+      clientId = "client-" <> showt serverClientCounter
+    in
+      ( server
+          { serverClientCounter = serverClientCounter + 1
+          , serverPendingClients = Map.insert clientId ticket serverPendingClients
+          }
+      , PendingParams
+          { pendingAuthKey  = serverAuthKey
+          , pendingClientId = clientId
+          , pendingTimeout  = serverPendingTimeout
+          }
+      )
 
 
 --------------------------------------------------------------------------------

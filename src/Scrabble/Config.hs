@@ -2,20 +2,23 @@
 
 module Scrabble.Config
   ( Config (..)
-  , load
+  , decode
   , path
   , placeholder
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson                     (FromJSON)
-import           Data.Text                      (Text)
-import           Data.Time.Clock                (NominalDiffTime)
-import           GHC.Generics                   (Generic)
-import           Network.Wai.Handler.Warp       (Port)
+import           Control.Arrow            (left)
+import           Data.Aeson               (FromJSON)
+import           Data.ByteString          (ByteString)
+import           Data.Text                (Text)
+import           Data.Time.Clock          (NominalDiffTime)
+import           GHC.Generics             (Generic)
+import           Network.Wai.Handler.Warp (Port)
 
-import qualified Data.Aeson                     as JSON
+import qualified Data.Aeson               as JSON
+import qualified Data.Text                as T
 
 
 --------------------------------------------------------------------------------
@@ -40,8 +43,8 @@ placeholder = Config
 
 
 --------------------------------------------------------------------------------
-load :: FilePath -> IO (Either String Config)
-load = JSON.eitherDecodeFileStrict'
+decode :: ByteString -> Either Text Config
+decode = left T.pack . JSON.eitherDecodeStrict'
 
 
 --------------------------------------------------------------------------------
