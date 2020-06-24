@@ -14,7 +14,7 @@ import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
                                             responseLBS)
 
-import           Scrabble.Server           (Server)
+import           Scrabble.Server           (Server, PendingParams (..))
 
 import qualified Data.Aeson                as JSON
 import qualified Data.Text.Lazy            as T
@@ -36,17 +36,23 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        let delay = 5
+        pendingClientTicket <- Auth.ticket 10
 
-        ticket <- Auth.ticket 10
-        clientId <- modifyMVar mServer $ pure . Server.createPendingClient ticket
+        PendingParams
+          { pendingAuthKey
+          , pendingClientId
+          , pendingTimeout
+          } <- modifyMVar mServer $
+                pure . Server.createPendingClient pendingClientTicket
 
-        jwt <- Auth.jwt delay "CHANGE ME LATER ALSO ADD CONFIG"
-                [ ( "tik", JSON.String ticket )
-                , ( "cid", JSON.String clientId )
+        jwt <- Auth.jwt pendingTimeout pendingAuthKey
+                [ ( "tik", JSON.String pendingClientTicket )
+                , ( "cid", JSON.String pendingClientId )
                 ]
 
-        timeOutPendingClient (nominalToMicroseconds delay) clientId mServer
+        let microseconds = nominalToMicroseconds pendingTimeout
+
+        timeOutPendingClient microseconds pendingClientId mServer
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
