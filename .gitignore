@@ -1,6 +1,3 @@
-# Created by https://www.gitignore.io/api/haskell
-# Edit at https://www.gitignore.io/?templates=haskell
-
 ### Haskell ###
 dist
 dist-*
@@ -25,8 +22,6 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 
-# End of https://www.gitignore.io/api/haskell
-
 # Haskell Stack
 .stack-work/
 ScrabbElm-Server.cabal
@@ -35,5 +30,8 @@ ScrabbElm-Server.cabal
 # Haskell IDE Engine
 hie.yaml
 
-# Utils
+### Config ###
+config.json
+
+### Utils ###
 build-and-send.sh
