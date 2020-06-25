@@ -15,6 +15,37 @@ import qualified Data.Map      as Map
 
 
 --------------------------------------------------------------------------------
+randomSequence :: (Random a, RandomGen g) => Int -> g -> ( [ a ], g )
+randomSequence = randomSequenceHelper random
+
+
+--------------------------------------------------------------------------------
+randomRSequence :: (Random a, RandomGen g) => ( a, a ) -> Int -> g -> ( [ a ], g )
+randomRSequence = randomSequenceHelper . randomR
+
+
+--------------------------------------------------------------------------------
+randomSequenceHelper :: forall a g. (g -> ( a, g )) -> Int -> g -> ( [ a ], g )
+randomSequenceHelper rand len gen =
+  collect ( [], gen ) len
+  where
+    collect :: ( [ a ], g ) -> Int -> ( [ a ], g )
+    collect acc@( rs, g ) n =
+      if n <= 0 then
+        acc
+      else
+        let
+          ( r, g' ) = rand g
+        in
+          collect ( r:rs, g' ) (n - 1)
+
+
+--------------------------------------------------------------------------------
+shuffleList :: RandomGen g => [ a ] -> g -> ( [ a ], g )
+shuffleList = flip fisherYates
+
+
+--------------------------------------------------------------------------------
 fisherYatesStep
   :: RandomGen g
   => ( Map Int a, g )
@@ -28,7 +59,7 @@ fisherYatesStep ( m, gen ) ( i, x ) =
 
 
 --------------------------------------------------------------------------------
-fisherYates :: RandomGen g => g -> [ a ] -> ( [ a ], g )
+fisherYates :: forall a g. RandomGen g => g -> [ a ] -> ( [ a ], g )
 fisherYates gen xs =
   case xs of
     [] ->
@@ -36,39 +67,12 @@ fisherYates gen xs =
 
     first:rest ->
       toElems $ foldl fisherYatesStep (initial first gen) (numerate rest)
-      where
-        toElems ( x, y ) = ( Map.elems x, y )
-        numerate = zip [1..]
-        initial x g = ( Map.singleton 0 x, g )
-
-
---------------------------------------------------------------------------------
-shuffleList :: RandomGen g => [ a ] -> g -> ( [ a ], g )
-shuffleList = flip fisherYates
-
-
---------------------------------------------------------------------------------
-randomSequenceHelper :: (g -> ( a, g )) -> Int -> g -> ( [ a ], g )
-randomSequenceHelper rand len gen =
-  collect ( [], gen ) len
   where
-    collect acc@( rs, g ) n =
-      if n <= 0 then
-        acc
-      else
-        let
-          ( r, g' ) = rand g
-        in
-          collect ( r:rs, g' ) (n - 1)
+    toElems :: ( Map Int a, g ) -> ( [ a ], g )
+    toElems ( x, y ) = ( Map.elems x, y )
 
+    numerate :: [ a ] -> [ ( Int, a ) ]
+    numerate = zip [1..]
 
---------------------------------------------------------------------------------
-randomRSequence :: (Random a, RandomGen g) => ( a, a ) -> Int -> g -> ( [ a ], g )
-randomRSequence =
-  randomSequenceHelper . randomR
-
-
---------------------------------------------------------------------------------
-randomSequence :: (Random a, RandomGen g) => Int -> g -> ( [ a ], g )
-randomSequence =
-  randomSequenceHelper random
+    initial :: a -> g -> ( Map Int a, g )
+    initial x g = ( Map.singleton 0 x, g )

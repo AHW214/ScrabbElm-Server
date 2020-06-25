@@ -11,18 +11,18 @@ module Scrabble.Message
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow           (left)
-import           Data.Aeson              (FromJSON, Value, (.=), (.:))
-import           Data.Text               (Text)
+import           Control.Arrow        (left)
+import           Data.Aeson           (FromJSON, Value, (.=), (.:))
+import           Data.Text            (Text)
 
-import           Scrabble.Room           (Room)
-import           Scrabble.Server         (Server (..))
+import           Scrabble.Room        (Room)
+import           Scrabble.Server      (Server (..))
 
-import qualified Data.Aeson              as JSON
-import qualified Data.ByteString         as BSS
-import qualified Data.ByteString.Lazy    as BSL
-import qualified Data.Map.Strict         as Map
-import qualified Data.Text               as T
+import qualified Data.Aeson           as JSON
+import qualified Data.ByteString      as BSS
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Map.Strict      as Map
+import qualified Data.Text            as Text
 
 
 --------------------------------------------------------------------------------
@@ -64,7 +64,7 @@ instance FromJSON ClientMessage where
 
 --------------------------------------------------------------------------------
 eitherDecode :: BSS.ByteString -> Either Text ClientMessage
-eitherDecode = left T.pack . JSON.eitherDecodeStrict'
+eitherDecode = left Text.pack . JSON.eitherDecodeStrict'
 
 
 --------------------------------------------------------------------------------

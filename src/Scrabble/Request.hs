@@ -17,8 +17,8 @@ import           Network.Wai               (Application, requestMethod,
 import           Scrabble.Server           (Server, PendingParams (..))
 
 import qualified Data.Aeson                as JSON
-import qualified Data.Text.Lazy            as T
-import qualified Data.Text.Lazy.Encoding   as T
+import qualified Data.Text.Lazy            as Text
+import qualified Data.Text.Lazy.Encoding   as Text
 import qualified Data.Time.Clock           as Time
 
 import qualified Scrabble.Authentication   as Auth
@@ -77,4 +77,4 @@ nominalToMicroseconds = floor . (1e6 *) . Time.nominalDiffTimeToSeconds
 
 --------------------------------------------------------------------------------
 txtToBsl :: Text -> ByteString
-txtToBsl = T.encodeUtf8 . T.fromStrict
+txtToBsl = Text.encodeUtf8 . Text.fromStrict

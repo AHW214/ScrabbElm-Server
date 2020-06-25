@@ -31,7 +31,7 @@ import           Scrabble.Config    (Config (..))
 import           Scrabble.Room      (Room (..))
 
 import qualified Data.Map.Strict    as Map
-import qualified Data.Text.Encoding as T
+import qualified Data.Text.Encoding as Text
 
 
 --------------------------------------------------------------------------------
@@ -58,7 +58,7 @@ data PendingParams = PendingParams
 new :: Config -> Server
 new Config { configAuthKey, configPendingTimeout } =
   Server
-    { serverAuthKey          = T.encodeUtf8 configAuthKey
+    { serverAuthKey          = Text.encodeUtf8 configAuthKey
     , serverClientCounter    = 0
     , serverConnectedClients = Map.empty
     , serverDirectory        = Map.empty

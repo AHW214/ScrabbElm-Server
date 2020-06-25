@@ -21,7 +21,7 @@ import           Scrabble.Config                (Config (..))
 import qualified Control.Exception              as Exception
 import qualified Data.ByteString.Char8          as BSS
 import qualified Data.Foldable                  as Fold
-import qualified Data.Text.IO                   as T
+import qualified Data.Text.IO                   as Text
 import qualified Network.Wai.Handler.Warp       as Warp
 import qualified Network.WebSockets             as WS
 
@@ -44,7 +44,7 @@ main = do
   let wsApp = WebSocket.app server
   let rqApp = simpleCors $ Request.app server
 
-  T.putStrLn $ "Listening on port " <> showt port
+  Text.putStrLn $ "Listening on port " <> showt port
 
   Warp.run port $ websocketsOr WS.defaultConnectionOptions wsApp rqApp
   where
@@ -57,11 +57,11 @@ main = do
               pure config
 
             Left errMsg ->
-              T.putStrLn ("Error: failed to decode config (" <> errMsg <> ")")
+              Text.putStrLn ("Error: failed to decode config (" <> errMsg <> ")")
               >> exitFailure
 
         _ ->
-          T.putStrLn "Warning: using placeholder config"
+          Text.putStrLn "Warning: using placeholder config"
           >> pure Config.placeholder
 
     readCustomPort :: IO (Maybe Port)
