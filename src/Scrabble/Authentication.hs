@@ -20,7 +20,7 @@ import           Scrabble.Random       (randomRSequence)
 
 import qualified Data.Aeson            as JSON
 import qualified Data.Map.Strict       as Map
-import qualified Data.Text             as T
+import qualified Data.Text             as Text
 import qualified Data.Time.Clock       as Time
 import qualified Web.JWT               as JWT
 
@@ -28,7 +28,7 @@ import qualified Web.JWT               as JWT
 --------------------------------------------------------------------------------
 ticket :: Int -> IO Text
 ticket =
-  fmap T.pack . getStdRandom . randomRSequence ( '0', '9' )
+  fmap Text.pack . getStdRandom . randomRSequence ( '0', '9' )
 
 
 --------------------------------------------------------------------------------

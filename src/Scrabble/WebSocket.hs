@@ -4,27 +4,27 @@ module Scrabble.WebSocket
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow           (left)
-import           Control.Concurrent      (MVar, modifyMVar, modifyMVar_, readMVar)
-import           Control.Exception       (finally)
-import           Control.Monad           (forever, void)
-import           Data.Functor            ((<&>))
-import           Data.Text               (Text)
-import           Network.WebSockets      (Connection, WebSocketsData, ServerApp)
+import           Control.Arrow      (left)
+import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
+import           Control.Exception  (finally)
+import           Control.Monad      (forever, void)
+import           Data.Functor       ((<&>))
+import           Data.Text          (Text)
+import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
 
-import           Scrabble.Message        (ClientMessage (..))
-import           Scrabble.Room           (Room (..))
-import           Scrabble.Server         (Server (..))
+import           Scrabble.Message   (ClientMessage (..))
+import           Scrabble.Room      (Room (..))
+import           Scrabble.Server    (Server (..))
 
-import qualified Data.ByteString         as BSS
-import qualified Data.Text               as T
-import qualified Data.Text.IO            as T
-import qualified Network.WebSockets      as WS
+import qualified Data.ByteString    as BSS
+import qualified Data.Text          as Text
+import qualified Data.Text.IO       as Text
+import qualified Network.WebSockets as WS
 
-import qualified Scrabble.Message        as Message
-import qualified Scrabble.Player         as Player
-import qualified Scrabble.Room           as Room
-import qualified Scrabble.Server         as Server
+import qualified Scrabble.Message   as Message
+import qualified Scrabble.Player    as Player
+import qualified Scrabble.Room      as Room
+import qualified Scrabble.Server    as Server
 
 
 --------------------------------------------------------------------------------
@@ -49,37 +49,67 @@ data Error
 
 
 --------------------------------------------------------------------------------
-close :: Text -> Connection -> IO ()
-close reason connection = do
-  T.putStrLn $ T.unlines
-    [ "Disconnecting client"
-    , "Reason: " <> reason
-    ]
+app :: MVar Server -> ServerApp
+app mServer pending = do
+  clientConn <- WS.acceptRequest pending
+  WS.withPingThread clientConn 30 (pure ()) $
+    WS.receiveData clientConn <&> decodeMessage >>=
+      \case
+        Right (Authenticate clientId clientTicket) ->
+          authenticate mServer ( clientId, clientConn ) clientTicket
 
-  WS.sendClose connection reason
-
-
---------------------------------------------------------------------------------
-send :: WebSocketsData a => a -> Connection -> IO ()
-send = flip WS.sendTextData
+        _ ->
+          close (Text.pack $ show AuthFormatInvalid) clientConn
 
 
 --------------------------------------------------------------------------------
-sendAll :: (WebSocketsData a, Traversable t) => a -> t Connection -> IO ()
-sendAll message =
-  void . traverse (send message)
+authenticate :: MVar Server -> Client -> Text -> IO ()
+authenticate mServer client@( clientId, clientConn ) clientTicket =
+  readMVar mServer <&> Server.getPendingClient clientId >>=
+    \case
+      Nothing ->
+        disconnect AuthIdentityInvalid
 
+      Just ticket | ticket /= clientTicket ->
+        disconnect AuthTicketInvalid
 
---------------------------------------------------------------------------------
-sendWhen :: WebSocketsData a => (Text -> Bool) -> a -> Server -> IO ()
-sendWhen predicate message =
-  sendAll message . Server.clientsWho predicate
+      _ ->
+        finally (onConnect >> onMessage) onDisconnect
+  where
+    onConnect :: IO ()
+    onConnect = do
+      newServer <- modifyMVar mServer $ \s ->
+        let
+          s' = Server.acceptPendingClient clientId clientConn s
+        in
+          pure ( s', s' )
 
+      Text.putStrLn $ "Client " <> clientId <> " connected"
 
---------------------------------------------------------------------------------
-broadcast :: WebSocketsData a => a -> Server -> IO ()
-broadcast message =
-  sendAll message . serverConnectedClients
+      send (Message.listRooms newServer) clientConn
+
+    onMessage :: IO ()
+    onMessage = forever $ do
+      message <- decodeMessage <$> WS.receiveData clientConn
+
+      modifyMVar_ mServer $ \s ->
+        case message >>= handleMessage client s of
+          Left err ->
+            -- Text.putStrLn errMsg (add logging levels)
+            send (Text.pack $ show err) clientConn
+            >> pure s
+
+          Right ( s', action ) ->
+            action >> pure s'
+
+    onDisconnect :: IO ()
+    onDisconnect = do
+      modifyMVar_ mServer $ pure . Server.removeConnectedClient clientId
+      Text.putStrLn $ "Client " <> clientId <> " disconnected"
+
+    disconnect :: Error -> IO ()
+    disconnect err =
+      close (Text.pack $ show err) clientConn
 
 
 --------------------------------------------------------------------------------
@@ -180,60 +210,34 @@ handleMessage client@( clientId, clientConn ) server message =
 
 
 --------------------------------------------------------------------------------
-authenticate :: MVar Server -> Client -> Text -> IO ()
-authenticate mServer client@( clientId, clientConn ) clientTicket =
-  readMVar mServer <&> Server.getPendingClient clientId >>=
-    \case
-      Nothing ->
-        disconnect AuthIdentityInvalid
-
-      Just ticket | ticket /= clientTicket ->
-        disconnect AuthTicketInvalid
-
-      _ ->
-        finally (onConnect >> onMessage) onDisconnect
-  where
-    onConnect = do
-      newServer <- modifyMVar mServer $ \s ->
-        let
-          s' = Server.acceptPendingClient clientId clientConn s
-        in
-          pure ( s', s' )
-
-      T.putStrLn $ "Client " <> clientId <> " connected"
-
-      send (Message.listRooms newServer) clientConn
-
-    onMessage = forever $ do
-      message <- decodeMessage <$> WS.receiveData clientConn
-
-      modifyMVar_ mServer $ \s ->
-        case message >>= handleMessage client s of
-          Left err ->
-            -- T.putStrLn errMsg (add logging levels)
-            send (T.pack $ show err) clientConn
-            >> pure s
-
-          Right ( s', action ) ->
-            action >> pure s'
-
-    onDisconnect = do
-      modifyMVar_ mServer $ pure . Server.removeConnectedClient clientId
-      T.putStrLn $ "Client " <> clientId <> " disconnected"
-
-    disconnect err =
-      close (T.pack $ show err) clientConn
+broadcast :: WebSocketsData a => a -> Server -> IO ()
+broadcast message =
+  sendAll message . serverConnectedClients
 
 
 --------------------------------------------------------------------------------
-app :: MVar Server -> ServerApp
-app mServer pending = do
-  clientConn <- WS.acceptRequest pending
-  WS.withPingThread clientConn 30 (pure ()) $
-    WS.receiveData clientConn <&> decodeMessage >>=
-      \case
-        Right (Authenticate clientId clientTicket) ->
-          authenticate mServer ( clientId, clientConn ) clientTicket
+sendWhen :: WebSocketsData a => (Text -> Bool) -> a -> Server -> IO ()
+sendWhen predicate message =
+  sendAll message . Server.clientsWho predicate
 
-        _ ->
-          close (T.pack $ show AuthFormatInvalid) clientConn
+
+--------------------------------------------------------------------------------
+sendAll :: (WebSocketsData a, Traversable t) => a -> t Connection -> IO ()
+sendAll message =
+  void . traverse (send message)
+
+
+--------------------------------------------------------------------------------
+send :: WebSocketsData a => a -> Connection -> IO ()
+send = flip WS.sendTextData
+
+
+--------------------------------------------------------------------------------
+close :: Text -> Connection -> IO ()
+close reason connection = do
+  Text.putStrLn $ Text.unlines
+    [ "Disconnecting client"
+    , "Reason: " <> reason
+    ]
+
+  WS.sendClose connection reason

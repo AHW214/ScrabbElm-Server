@@ -18,7 +18,7 @@ import           GHC.Generics             (Generic)
 import           Network.Wai.Handler.Warp (Port)
 
 import qualified Data.Aeson               as JSON
-import qualified Data.Text                as T
+import qualified Data.Text                as Text
 
 
 --------------------------------------------------------------------------------
@@ -44,7 +44,7 @@ placeholder = Config
 
 --------------------------------------------------------------------------------
 decode :: ByteString -> Either Text Config
-decode = left T.pack . JSON.eitherDecodeStrict'
+decode = left Text.pack . JSON.eitherDecodeStrict'
 
 
 --------------------------------------------------------------------------------

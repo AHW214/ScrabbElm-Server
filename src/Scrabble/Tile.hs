@@ -8,13 +8,13 @@ module Scrabble.Tile
 
 --------------------------------------------------------------------------------
 import           Data.Aeson      (ToJSON (toJSON))
-import           Data.Char       (ord)
 import           Data.Map.Strict (Map)
 import           Data.Maybe      (fromMaybe)
 import           System.Random   (getStdRandom)
 
 import           Scrabble.Random (shuffleList)
 
+import qualified Data.Char       as Char
 import qualified Data.List       as List
 import qualified Data.Map.Strict as Map
 
@@ -30,10 +30,10 @@ instance ToJSON Tile where
   toJSON = toJSON .
     \case
       Blank ->
-        [ ord ' ', 0 ]
+        [ Char.ord ' ', 0 ]
 
       Letter c v ->
-        [ ord c, v ]
+        [ Char.ord c, v ]
 
 
 --------------------------------------------------------------------------------
@@ -44,9 +44,10 @@ points =
     Map.empty
     groups
   where
-    withPoints pts mp chr =
-      Map.insert chr pts mp
+    withPoints :: Int -> Map Char Int -> Char -> Map Char Int
+    withPoints pts mp chr = Map.insert chr pts mp
 
+    groups :: [ ( Int, [ Char ] ) ]
     groups =
       [ ( 1,  [ 'e', 'a', 'i', 'o', 'n', 'r', 't', 'l', 's', 'u' ] )
       , ( 2,  [ 'd', 'g' ] )
@@ -60,8 +61,7 @@ points =
 
 --------------------------------------------------------------------------------
 value :: Char -> Int
-value =
-  fromMaybe 0 . flip Map.lookup points
+value = fromMaybe 0 . flip Map.lookup points
 
 
 --------------------------------------------------------------------------------
@@ -106,7 +106,7 @@ defaultBag =
 --------------------------------------------------------------------------------
 makeBag :: [ ( Char, Int ) ] -> [ Tile ]
 makeBag =
-  foldl (\bag ( c, i ) -> replicate i (fromChar c) ++ bag) []
+  List.foldl' (\bag ( c, i ) -> replicate i (fromChar c) ++ bag) []
 
 
 --------------------------------------------------------------------------------
