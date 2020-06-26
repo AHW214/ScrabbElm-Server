@@ -19,6 +19,7 @@ import           Data.Aeson       (FromJSON, ToJSON, withObject, (.=), (.:))
 import           Data.Map.Strict  (Map)
 import           Data.Text        (Text)
 
+import           Scrabble.Client  (Client (..))
 import           Scrabble.Player  (Player (..))
 
 import qualified Data.Aeson       as JSON
@@ -30,9 +31,8 @@ import qualified Data.Maybe       as Maybe
 --------------------------------------------------------------------------------
 data Room = Room
   { roomCapacity :: Int
-  , roomId       :: Int
   , roomName     :: Text
-  , roomPlayers  :: Map Text Player
+  , roomPlayers  :: Map Client Player
   , roomPlaying  :: Maybe Player
   }
 
@@ -73,7 +73,6 @@ maxCapacity = 4
 empty :: Room
 empty = Room
   { roomCapacity = maxCapacity
-  , roomId       = 0
   , roomName     = ""
   , roomPlayers  = Map.empty
   , roomPlaying  = Nothing
@@ -109,9 +108,9 @@ isEmpty room =
 
 
 --------------------------------------------------------------------------------
-getPlayer :: Text -> Room -> Maybe Player
-getPlayer name =
-  Map.lookup name . roomPlayers
+getPlayer :: Client -> Room -> Maybe Player
+getPlayer client =
+  Map.lookup client . roomPlayers
 
 
 --------------------------------------------------------------------------------
@@ -122,14 +121,14 @@ hasPlayerTag tag =
 
 --------------------------------------------------------------------------------
 addPlayer :: Player -> Room -> Room
-addPlayer player@Player { playerClient = ( ticket, _ ) } room@Room { roomPlayers } =
-  room { roomPlayers = Map.insert ticket player roomPlayers }
+addPlayer player@Player { playerClient } room@Room { roomPlayers } =
+  room { roomPlayers = Map.insert playerClient player roomPlayers }
 
 
 --------------------------------------------------------------------------------
 removePlayer :: Player -> Room -> Room
-removePlayer Player { playerClient = ( ticket, _ ) } room@Room { roomPlayers } =
-  room { roomPlayers = Map.delete ticket roomPlayers }
+removePlayer Player { playerClient } room@Room { roomPlayers } =
+  room { roomPlayers = Map.delete playerClient roomPlayers }
 
 
 --------------------------------------------------------------------------------

@@ -27,19 +27,22 @@ import           Data.Time.Clock    (NominalDiffTime)
 import           Network.WebSockets (Connection)
 import           TextShow           (showt)
 
+import           Scrabble.Client    (Client)
 import           Scrabble.Config    (Config (..))
 import           Scrabble.Room      (Room (..))
 
 import qualified Data.Map.Strict    as Map
 import qualified Data.Text.Encoding as Text
 
+import qualified Scrabble.Client    as Client
+
 
 --------------------------------------------------------------------------------
 data Server = Server
   { serverAuthKey          :: ByteString
   , serverClientCounter    :: Int
-  , serverConnectedClients :: Map Text Connection
-  , serverDirectory        :: Map Text Text
+  , serverConnectedClients :: Map Text Client
+  , serverRoomDirectory    :: Map Client Text
   , serverPendingClients   :: Map Text Text
   , serverPendingTimeout   :: NominalDiffTime
   , serverRooms            :: Map Text Room
@@ -61,7 +64,7 @@ new Config { configAuthKey, configPendingTimeout } =
     { serverAuthKey          = Text.encodeUtf8 configAuthKey
     , serverClientCounter    = 0
     , serverConnectedClients = Map.empty
-    , serverDirectory        = Map.empty
+    , serverRoomDirectory    = Map.empty
     , serverPendingClients   = Map.empty
     , serverPendingTimeout   = configPendingTimeout
     , serverRooms            = Map.empty
@@ -103,9 +106,12 @@ getPendingClient clientId Server { serverPendingClients } =
 acceptPendingClient :: Text -> Connection -> Server -> Server
 acceptPendingClient clientId clientConn server@Server { serverPendingClients, serverConnectedClients } =
   server
-    { serverConnectedClients = Map.insert clientId clientConn serverConnectedClients
+    { serverConnectedClients = Map.insert clientId client serverConnectedClients
     , serverPendingClients = Map.delete clientId serverPendingClients
     }
+  where
+    client :: Client
+    client = Client.new clientConn clientId
 
 
 --------------------------------------------------------------------------------
@@ -150,24 +156,24 @@ getRoom name = Map.lookup name . serverRooms
 
 
 --------------------------------------------------------------------------------
-getClientRoom :: Text -> Server -> Maybe Room
-getClientRoom clientId Server { serverDirectory, serverRooms } =
-  Map.lookup clientId serverDirectory >>= flip Map.lookup serverRooms
+getClientRoom :: Client -> Server -> Maybe Room
+getClientRoom clientId Server { serverRoomDirectory, serverRooms } =
+  Map.lookup clientId serverRoomDirectory >>= flip Map.lookup serverRooms
 
 
 --------------------------------------------------------------------------------
-joinRoom :: Text -> Text -> Server -> Server
-joinRoom clientId roomName server@Server { serverDirectory } =
-  server { serverDirectory = Map.insert clientId roomName serverDirectory }
+joinRoom :: Client -> Text -> Server -> Server
+joinRoom client roomName server@Server { serverRoomDirectory } =
+  server { serverRoomDirectory = Map.insert client roomName serverRoomDirectory }
 
 
 --------------------------------------------------------------------------------
-leaveRoom :: Text -> Server -> Server
-leaveRoom clientId server@Server { serverDirectory } =
-  server { serverDirectory = Map.delete clientId serverDirectory }
+leaveRoom :: Client -> Server -> Server
+leaveRoom client server@Server { serverRoomDirectory } =
+  server { serverRoomDirectory = Map.delete client serverRoomDirectory }
 
 
 --------------------------------------------------------------------------------
-inRoom :: Text -> Server -> Bool
-inRoom clientId =
-  Map.member clientId . serverDirectory
+inRoom :: Client -> Server -> Bool
+inRoom client =
+  Map.member client . serverRoomDirectory

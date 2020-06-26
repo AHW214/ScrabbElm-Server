@@ -8,10 +8,10 @@ import           Control.Arrow      (left)
 import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
 import           Control.Exception  (finally)
 import           Control.Monad      (forever, void)
-import           Data.Functor       ((<&>))
 import           Data.Text          (Text)
 import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
 
+import           Scrabble.Client    (Client (..))
 import           Scrabble.Message   (ClientMessage (..))
 import           Scrabble.Room      (Room (..))
 import           Scrabble.Server    (Server (..))
@@ -21,15 +21,11 @@ import qualified Data.Text          as Text
 import qualified Data.Text.IO       as Text
 import qualified Network.WebSockets as WS
 
+import qualified Scrabble.Client    as Client
 import qualified Scrabble.Message   as Message
 import qualified Scrabble.Player    as Player
 import qualified Scrabble.Room      as Room
 import qualified Scrabble.Server    as Server
-
-
---------------------------------------------------------------------------------
-type Client =
-  ( Text, Connection )
 
 
 --------------------------------------------------------------------------------
@@ -53,10 +49,10 @@ app :: MVar Server -> ServerApp
 app mServer pending = do
   clientConn <- WS.acceptRequest pending
   WS.withPingThread clientConn 30 (pure ()) $
-    WS.receiveData clientConn <&> decodeMessage >>=
-      \case
+    WS.receiveData clientConn >>= \received ->
+      case decodeMessage received of
         Right (Authenticate clientId clientTicket) ->
-          authenticate mServer ( clientId, clientConn ) clientTicket
+          authenticate mServer (Client.new clientConn clientId) clientTicket
 
         _ ->
           close (Text.pack $ show AuthFormatInvalid) clientConn
@@ -64,9 +60,9 @@ app mServer pending = do
 
 --------------------------------------------------------------------------------
 authenticate :: MVar Server -> Client -> Text -> IO ()
-authenticate mServer client@( clientId, clientConn ) clientTicket =
-  readMVar mServer <&> Server.getPendingClient clientId >>=
-    \case
+authenticate mServer client@Client { clientConnection, clientId } clientTicket =
+  readMVar mServer >>= \server ->
+    case Server.getPendingClient clientId server of
       Nothing ->
         disconnect AuthIdentityInvalid
 
@@ -80,23 +76,23 @@ authenticate mServer client@( clientId, clientConn ) clientTicket =
     onConnect = do
       newServer <- modifyMVar mServer $ \s ->
         let
-          s' = Server.acceptPendingClient clientId clientConn s
+          s' = Server.acceptPendingClient clientId clientConnection s
         in
           pure ( s', s' )
 
       Text.putStrLn $ "Client " <> clientId <> " connected"
 
-      send (Message.listRooms newServer) clientConn
+      send (Message.listRooms newServer) clientConnection
 
     onMessage :: IO ()
     onMessage = forever $ do
-      message <- decodeMessage <$> WS.receiveData clientConn
+      message <- decodeMessage <$> WS.receiveData clientConnection
 
       modifyMVar_ mServer $ \s ->
         case message >>= handleMessage client s of
           Left err ->
             -- Text.putStrLn errMsg (add logging levels)
-            send (Text.pack $ show err) clientConn
+            send (Text.pack $ show err) clientConnection
             >> pure s
 
           Right ( s', action ) ->
@@ -109,7 +105,7 @@ authenticate mServer client@( clientId, clientConn ) clientTicket =
 
     disconnect :: Error -> IO ()
     disconnect err =
-      close (Text.pack $ show err) clientConn
+      close (Text.pack $ show err) clientConnection
 
 
 --------------------------------------------------------------------------------
@@ -120,7 +116,7 @@ decodeMessage =
 
 --------------------------------------------------------------------------------
 handleMessage :: Client -> Server -> ClientMessage -> Either Error ( Server, IO () )
-handleMessage client@( clientId, clientConn ) server message =
+handleMessage client@Client { clientConnection } server message =
   case message of
     NewRoom name capacity ->
       case Server.getRoom name server of
@@ -160,18 +156,18 @@ handleMessage client@( clientId, clientConn ) server message =
                   newRoom = Room.addPlayer newPlayer room
                 in
                   Right
-                    ( Server.joinRoom clientId roomName
+                    ( Server.joinRoom client roomName
                       $ Server.addRoom newRoom server
-                    , send (Message.joinRoom newRoom) clientConn
+                    , send (Message.joinRoom newRoom) clientConnection
                     )
 
         _ ->
           Left RoomNoEntry
 
     LeaveRoom ->
-      case Server.getClientRoom clientId server of
+      case Server.getClientRoom client server of
         Just room ->
-          case Room.getPlayer clientId room of
+          case Room.getPlayer client room of
             Just player ->
               let
                 newRoom =
@@ -183,7 +179,7 @@ handleMessage client@( clientId, clientConn ) server message =
                 ( update, action ) =
                   if Room.isEmpty newRoom then
                     ( \r ->
-                        Server.leaveRoom clientId
+                        Server.leaveRoom client
                         . Server.removeRoom r
                     , sendWhen
                         (not . flip Server.inRoom server)
@@ -197,7 +193,7 @@ handleMessage client@( clientId, clientConn ) server message =
               in
                 Right
                   ( update newRoom server
-                  , send (Message.leaveRoom name) clientConn
+                  , send (Message.leaveRoom name) clientConnection
                     >> action
                   )
 

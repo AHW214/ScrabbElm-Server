@@ -6,17 +6,17 @@ module Scrabble.Player
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson         (ToJSON, (.=))
-import           Data.Text          (Text)
-import           Network.WebSockets (Connection)
+import           Data.Aeson      (ToJSON, (.=))
+import           Data.Text       (Text)
 
-import qualified Data.Aeson         as JSON
+import           Scrabble.Client (Client)
+
+import qualified Data.Aeson      as JSON
 
 
 --------------------------------------------------------------------------------
 data Player = Player
-  { playerClient :: ( Text, Connection )
-  , playerId     :: Int
+  { playerClient :: Client
   , playerName   :: Text
   , playerScore  :: Int
   }
@@ -37,10 +37,9 @@ instance ToJSON Player where
 
 
 --------------------------------------------------------------------------------
-new :: Text -> ( Text, Connection ) -> Player
+new :: Text -> Client -> Player
 new name client = Player
   { playerClient = client
-  , playerId     = 0 -- TODO
   , playerName   = name
   , playerScore  = 0
   }
