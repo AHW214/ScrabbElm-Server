@@ -16,7 +16,6 @@ import           Network.Wai               (Application, requestMethod,
 
 import           Scrabble.Server           (Server, PendingParams (..))
 
-import qualified Data.Aeson                as JSON
 import qualified Data.Text.Lazy            as Text
 import qualified Data.Text.Lazy.Encoding   as Text
 import qualified Data.Time.Clock           as Time
@@ -36,19 +35,20 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        pendingClientTicket <- Auth.ticket 10
+        pendingClientTicket <- Auth.createTicket 10
 
         PendingParams
-          { pendingAuthKey
+          { pendingAuthSecret
           , pendingClientId
           , pendingTimeout
           } <- modifyMVar mServer $
                 pure . Server.createPendingClient pendingClientTicket
 
-        jwt <- Auth.jwt pendingTimeout pendingAuthKey
-                [ ( "tik", JSON.String pendingClientTicket )
-                , ( "cid", JSON.String pendingClientId )
-                ]
+        jwt <- Auth.createClientJwt
+                pendingTimeout
+                pendingAuthSecret
+                pendingClientTicket
+                pendingClientId
 
         let microseconds = nominalToMicroseconds pendingTimeout
 

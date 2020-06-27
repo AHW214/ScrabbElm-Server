@@ -17,13 +17,17 @@ import           Data.Time.Clock          (NominalDiffTime)
 import           GHC.Generics             (Generic)
 import           Network.Wai.Handler.Warp (Port)
 
+import           Scrabble.Authentication  (Secret)
+
 import qualified Data.Aeson               as JSON
 import qualified Data.Text                as Text
+
+import qualified Scrabble.Authentication  as Auth
 
 
 --------------------------------------------------------------------------------
 data Config = Config
-  { configAuthKey        :: Text
+  { configAuthSecret     :: Secret
   , configPendingTimeout :: NominalDiffTime
   , configPort           :: Maybe Port
   } deriving Generic
@@ -36,7 +40,7 @@ instance FromJSON Config
 --------------------------------------------------------------------------------
 placeholder :: Config
 placeholder = Config
-  { configAuthKey        = "PLACEHOLDER AUTH KEY"
+  { configAuthSecret     = Auth.createSecret "PLACEHOLDER AUTH KEY"
   , configPendingTimeout = 5
   , configPort           = Just 3000
   }

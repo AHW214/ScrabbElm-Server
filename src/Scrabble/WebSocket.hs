@@ -4,28 +4,30 @@ module Scrabble.WebSocket
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow      (left)
-import           Control.Concurrent (MVar, modifyMVar, modifyMVar_, readMVar)
-import           Control.Exception  (finally)
-import           Control.Monad      (forever, void)
-import           Data.Text          (Text)
-import           Network.WebSockets (Connection, WebSocketsData, ServerApp)
+import           Control.Arrow           (left)
+import           Control.Concurrent      (MVar, modifyMVar, modifyMVar_, readMVar)
+import           Control.Exception       (finally)
+import           Control.Monad           (forever)
+import           Data.Foldable           (traverse_)
+import           Data.Text               (Text)
+import           Network.WebSockets      (Connection, WebSocketsData, ServerApp)
 
-import           Scrabble.Client    (Client (..))
-import           Scrabble.Message   (ClientMessage (..))
-import           Scrabble.Room      (Room (..))
-import           Scrabble.Server    (Server (..))
+import           Scrabble.Client         (Client (..))
+import           Scrabble.Message        (ClientMessage (..))
+import           Scrabble.Room           (Room (..))
+import           Scrabble.Server         (Server (..))
 
-import qualified Data.ByteString    as BSS
-import qualified Data.Text          as Text
-import qualified Data.Text.IO       as Text
-import qualified Network.WebSockets as WS
+import qualified Data.ByteString         as BSS
+import qualified Data.Text               as Text
+import qualified Data.Text.IO            as Text
+import qualified Network.WebSockets      as WS
 
-import qualified Scrabble.Client    as Client
-import qualified Scrabble.Message   as Message
-import qualified Scrabble.Player    as Player
-import qualified Scrabble.Room      as Room
-import qualified Scrabble.Server    as Server
+import qualified Scrabble.Authentication as Auth
+import qualified Scrabble.Client         as Client
+import qualified Scrabble.Message        as Message
+import qualified Scrabble.Player         as Player
+import qualified Scrabble.Room           as Room
+import qualified Scrabble.Server         as Server
 
 
 --------------------------------------------------------------------------------
@@ -47,15 +49,17 @@ data Error
 --------------------------------------------------------------------------------
 app :: MVar Server -> ServerApp
 app mServer pending = do
-  clientConn <- WS.acceptRequest pending
-  WS.withPingThread clientConn 30 (pure ()) $
-    WS.receiveData clientConn >>= \received ->
-      case decodeMessage received of
-        Right (Authenticate clientId clientTicket) ->
-          authenticate mServer (Client.new clientConn clientId) clientTicket
+  connection <- WS.acceptRequest pending
+  WS.withPingThread connection 30 (pure ()) $
+    Auth.verifyClientJwt . serverAuthSecret
+    <$> readMVar mServer
+    <*> WS.receiveData connection
+    >>= \case
+          Just ( clientId, clientTicket ) ->
+            authenticate mServer (Client.new connection clientId) clientTicket
 
-        _ ->
-          close (Text.pack $ show AuthFormatInvalid) clientConn
+          _ ->
+            closeConnection (Text.pack $ show AuthFormatInvalid) connection
 
 
 --------------------------------------------------------------------------------
@@ -82,7 +86,7 @@ authenticate mServer client@Client { clientConnection, clientId } clientTicket =
 
       Text.putStrLn $ "Client " <> clientId <> " connected"
 
-      send (Message.listRooms newServer) clientConnection
+      sendClient (Message.listRooms newServer) client
 
     onMessage :: IO ()
     onMessage = forever $ do
@@ -92,7 +96,7 @@ authenticate mServer client@Client { clientConnection, clientId } clientTicket =
         case message >>= handleMessage client s of
           Left err ->
             -- Text.putStrLn errMsg (add logging levels)
-            send (Text.pack $ show err) clientConnection
+            sendClient (Text.pack $ show err) client
             >> pure s
 
           Right ( s', action ) ->
@@ -105,7 +109,7 @@ authenticate mServer client@Client { clientConnection, clientId } clientTicket =
 
     disconnect :: Error -> IO ()
     disconnect err =
-      close (Text.pack $ show err) clientConnection
+      closeClient (Text.pack $ show err) client
 
 
 --------------------------------------------------------------------------------
@@ -116,7 +120,7 @@ decodeMessage =
 
 --------------------------------------------------------------------------------
 handleMessage :: Client -> Server -> ClientMessage -> Either Error ( Server, IO () )
-handleMessage client@Client { clientConnection } server message =
+handleMessage client server message =
   case message of
     NewRoom name capacity ->
       case Server.getRoom name server of
@@ -127,8 +131,7 @@ handleMessage client@Client { clientConnection } server message =
             in
               Right
                 ( Server.addRoom newRoom server
-                , sendWhen
-                    (not . flip Server.inRoom server)
+                , broadcastLobby
                     (Message.newRoom newRoom)
                     server
                 )
@@ -158,7 +161,9 @@ handleMessage client@Client { clientConnection } server message =
                   Right
                     ( Server.joinRoom client roomName
                       $ Server.addRoom newRoom server
-                    , send (Message.joinRoom newRoom) clientConnection
+                    , sendClient
+                        (Message.joinRoom newRoom)
+                        client
                     )
 
         _ ->
@@ -181,8 +186,7 @@ handleMessage client@Client { clientConnection } server message =
                     ( \r ->
                         Server.leaveRoom client
                         . Server.removeRoom r
-                    , sendWhen
-                        (not . flip Server.inRoom server)
+                    , broadcastLobby
                         (Message.removeRoom name)
                         server
                     )
@@ -193,7 +197,9 @@ handleMessage client@Client { clientConnection } server message =
               in
                 Right
                   ( update newRoom server
-                  , send (Message.leaveRoom name) clientConnection
+                  , sendClient
+                      (Message.leaveRoom name)
+                      client
                     >> action
                   )
 
@@ -201,36 +207,38 @@ handleMessage client@Client { clientConnection } server message =
 
         _ -> Left RoomNoEntry
 
-    _ ->
-      Right ( server, pure () )
-
 
 --------------------------------------------------------------------------------
 broadcast :: WebSocketsData a => a -> Server -> IO ()
 broadcast message =
-  sendAll message . serverConnectedClients
+  sendClients message . serverConnectedClients
 
 
 --------------------------------------------------------------------------------
-sendWhen :: WebSocketsData a => (Text -> Bool) -> a -> Server -> IO ()
-sendWhen predicate message =
-  sendAll message . Server.clientsWho predicate
+broadcastLobby :: WebSocketsData a => a -> Server -> IO ()
+broadcastLobby message =
+  sendClients message . Server.clientsInLobby
 
 
 --------------------------------------------------------------------------------
-sendAll :: (WebSocketsData a, Traversable t) => a -> t Connection -> IO ()
-sendAll message =
-  void . traverse (send message)
+sendClients :: (WebSocketsData a, Traversable t) => a -> t Client -> IO ()
+sendClients message = traverse_ (sendClient message)
 
 
 --------------------------------------------------------------------------------
-send :: WebSocketsData a => a -> Connection -> IO ()
-send = flip WS.sendTextData
+sendClient :: WebSocketsData a => a -> Client -> IO ()
+sendClient message =
+  flip WS.sendTextData message . clientConnection
 
 
 --------------------------------------------------------------------------------
-close :: Text -> Connection -> IO ()
-close reason connection = do
+closeClient :: Text -> Client -> IO ()
+closeClient reason = closeConnection reason . clientConnection
+
+
+--------------------------------------------------------------------------------
+closeConnection :: Text -> Connection -> IO ()
+closeConnection reason connection = do
   Text.putStrLn $ Text.unlines
     [ "Disconnecting client"
     , "Reason: " <> reason

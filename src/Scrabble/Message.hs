@@ -27,8 +27,7 @@ import qualified Data.Text            as Text
 
 --------------------------------------------------------------------------------
 data ClientMessage
-  = Authenticate Text Text
-  | NewRoom Text Int
+  = NewRoom Text Int
   | JoinRoom Text Text
   | LeaveRoom
 
@@ -46,9 +45,6 @@ instance FromJSON ClientMessage where
               <*> messageData .: p2
 
     case messageType of
-      "authenticate" ->
-        withTwo Authenticate "clientId" "clientTicket"
-
       "newRoom" ->
         withTwo NewRoom "roomName" "roomCapacity"
 

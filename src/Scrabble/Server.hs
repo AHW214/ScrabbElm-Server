@@ -4,7 +4,7 @@ module Scrabble.Server
   , acceptPendingClient
   , addRoom
   , clientExists
-  , clientsWho
+  , clientsInLobby
   , createPendingClient
   , getClientRoom
   , getPendingClient
@@ -20,26 +20,25 @@ module Scrabble.Server
 
 
 --------------------------------------------------------------------------------
-import           Data.ByteString    (ByteString)
-import           Data.Map.Strict    (Map)
-import           Data.Text          (Text)
-import           Data.Time.Clock    (NominalDiffTime)
-import           Network.WebSockets (Connection)
-import           TextShow           (showt)
+import           Data.Map.Strict         (Map)
+import           Data.Text               (Text)
+import           Data.Time.Clock         (NominalDiffTime)
+import           Network.WebSockets      (Connection)
+import           TextShow                (showt)
 
-import           Scrabble.Client    (Client)
-import           Scrabble.Config    (Config (..))
-import           Scrabble.Room      (Room (..))
+import           Scrabble.Authentication (Secret)
+import           Scrabble.Client         (Client)
+import           Scrabble.Config         (Config (..))
+import           Scrabble.Room           (Room (..))
 
-import qualified Data.Map.Strict    as Map
-import qualified Data.Text.Encoding as Text
+import qualified Data.Map.Strict         as Map
 
-import qualified Scrabble.Client    as Client
+import qualified Scrabble.Client         as Client
 
 
 --------------------------------------------------------------------------------
 data Server = Server
-  { serverAuthKey          :: ByteString
+  { serverAuthSecret       :: Secret
   , serverClientCounter    :: Int
   , serverConnectedClients :: Map Text Client
   , serverRoomDirectory    :: Map Client Text
@@ -51,17 +50,17 @@ data Server = Server
 
 --------------------------------------------------------------------------------
 data PendingParams = PendingParams
-  { pendingAuthKey  :: ByteString
-  , pendingClientId :: Text
-  , pendingTimeout  :: NominalDiffTime
+  { pendingAuthSecret :: Secret
+  , pendingClientId   :: Text
+  , pendingTimeout    :: NominalDiffTime
   }
 
 
 --------------------------------------------------------------------------------
 new :: Config -> Server
-new Config { configAuthKey, configPendingTimeout } =
+new Config { configAuthSecret, configPendingTimeout } =
   Server
-    { serverAuthKey          = Text.encodeUtf8 configAuthKey
+    { serverAuthSecret       = configAuthSecret
     , serverClientCounter    = 0
     , serverConnectedClients = Map.empty
     , serverRoomDirectory    = Map.empty
@@ -76,7 +75,7 @@ createPendingClient :: Text -> Server -> ( Server, PendingParams )
 createPendingClient
   ticket
   server@Server
-    { serverAuthKey
+    { serverAuthSecret
     , serverClientCounter
     , serverPendingClients
     , serverPendingTimeout
@@ -89,9 +88,9 @@ createPendingClient
           , serverPendingClients = Map.insert clientId ticket serverPendingClients
           }
       , PendingParams
-          { pendingAuthKey  = serverAuthKey
-          , pendingClientId = clientId
-          , pendingTimeout  = serverPendingTimeout
+          { pendingAuthSecret = serverAuthSecret
+          , pendingClientId   = clientId
+          , pendingTimeout    = serverPendingTimeout
           }
       )
 
@@ -133,9 +132,15 @@ clientExists clientId =
 
 
 --------------------------------------------------------------------------------
-clientsWho :: (Text -> Bool) -> Server -> Map Text Connection
+clientsInLobby :: Server -> Map Text Client
+clientsInLobby server =
+  clientsWho (flip inLobby server) server
+
+
+--------------------------------------------------------------------------------
+clientsWho :: (Client -> Bool) -> Server -> Map Text Client
 clientsWho predicate =
-  Map.filterWithKey (\k _ -> predicate k) . serverConnectedClients
+  Map.filter predicate . serverConnectedClients
 
 
 --------------------------------------------------------------------------------
@@ -171,6 +176,11 @@ joinRoom client roomName server@Server { serverRoomDirectory } =
 leaveRoom :: Client -> Server -> Server
 leaveRoom client server@Server { serverRoomDirectory } =
   server { serverRoomDirectory = Map.delete client serverRoomDirectory }
+
+
+--------------------------------------------------------------------------------
+inLobby :: Client -> Server -> Bool
+inLobby client = not . inRoom client
 
 
 --------------------------------------------------------------------------------
