@@ -9,6 +9,7 @@ module Scrabble.Room
   , isFull
   , maxCapacity
   , new
+  , removeClient
   , removePlayer
   , switchTurn
   ) where
@@ -126,12 +127,23 @@ addPlayer player@Player { playerClient } room@Room { roomPlayers } =
 
 
 --------------------------------------------------------------------------------
-removePlayer :: Player -> Room -> Room
-removePlayer Player { playerClient } room@Room { roomPlayers } =
-  room { roomPlayers = Map.delete playerClient roomPlayers }
+removePlayer :: Player -> Room -> Maybe Room
+removePlayer = removeClient . playerClient
 
 
 --------------------------------------------------------------------------------
 switchTurn :: Player -> Room -> Room
 switchTurn player room =
   room { roomPlaying = Just player }
+
+
+--------------------------------------------------------------------------------
+removeClient :: Client -> Room -> Maybe Room
+removeClient client room@Room { roomPlayers } =
+  if null players then
+    Nothing
+  else
+    Just $ room { roomPlayers = players }
+  where
+    players =
+      Map.delete client roomPlayers

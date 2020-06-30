@@ -1,9 +1,9 @@
 module Scrabble.Authentication
   ( Secret
-  , createClientJwt
+  , createClientJWT
   , createSecret
   , createTicket
-  , verifyClientJwt
+  , verifyClientJWT
   ) where
 
 
@@ -51,13 +51,13 @@ createTicket =
 
 
 --------------------------------------------------------------------------------
-createClientJwt :: NominalDiffTime -> Secret -> Text -> Text -> IO Text
-createClientJwt seconds (Secret signer) clientTicket clientId =
+createClientJWT :: NominalDiffTime -> Secret -> Text -> Text -> IO Text
+createClientJWT seconds (Secret signer) clientTicket clientId =
   withTime <$> Time.getCurrentTime
   where
     withTime :: UTCTime -> Text
     withTime time =
-      createJwt (expirationDate time) signer clientClaims
+      createJWT (expirationDate time) signer clientClaims
 
     expirationDate :: UTCTime -> Maybe NumericDate
     expirationDate =
@@ -71,8 +71,8 @@ createClientJwt seconds (Secret signer) clientTicket clientId =
 
 
 --------------------------------------------------------------------------------
-createJwt :: Maybe NumericDate -> Signer -> [ ( Text, JSON.Value ) ] -> Text
-createJwt expirationDate signer unregClaims =
+createJWT :: Maybe NumericDate -> Signer -> [ ( Text, JSON.Value ) ] -> Text
+createJWT expirationDate signer unregClaims =
   JWT.encodeSigned signer header claims
   where
     header :: JOSEHeader
@@ -92,8 +92,8 @@ createJwt expirationDate signer unregClaims =
 
 
 --------------------------------------------------------------------------------
-verifyClientJwt :: Secret -> Text -> Maybe ( Text, Text )
-verifyClientJwt (Secret signer) =
+verifyClientJWT :: Secret -> Text -> Maybe ( Text, Text )
+verifyClientJWT (Secret signer) =
   getClientClaims <=< JWT.decodeAndVerifySignature signer
 
 

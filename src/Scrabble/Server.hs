@@ -27,13 +27,14 @@ import           Network.WebSockets      (Connection)
 import           TextShow                (showt)
 
 import           Scrabble.Authentication (Secret)
-import           Scrabble.Client         (Client)
+import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
 import           Scrabble.Room           (Room (..))
 
 import qualified Data.Map.Strict         as Map
 
 import qualified Scrabble.Client         as Client
+import qualified Scrabble.Room           as Room
 
 
 --------------------------------------------------------------------------------
@@ -80,19 +81,18 @@ createPendingClient
     , serverPendingClients
     , serverPendingTimeout
     }
-  = let
+  = ( server
+        { serverClientCounter = serverClientCounter + 1
+        , serverPendingClients = Map.insert clientId ticket serverPendingClients
+        }
+    , PendingParams
+        { pendingAuthSecret = serverAuthSecret
+        , pendingClientId   = clientId
+        , pendingTimeout    = serverPendingTimeout
+        }
+    )
+    where
       clientId = "client-" <> showt serverClientCounter
-    in
-      ( server
-          { serverClientCounter = serverClientCounter + 1
-          , serverPendingClients = Map.insert clientId ticket serverPendingClients
-          }
-      , PendingParams
-          { pendingAuthSecret = serverAuthSecret
-          , pendingClientId   = clientId
-          , pendingTimeout    = serverPendingTimeout
-          }
-      )
 
 
 --------------------------------------------------------------------------------
@@ -102,12 +102,14 @@ getPendingClient clientId Server { serverPendingClients } =
 
 
 --------------------------------------------------------------------------------
-acceptPendingClient :: Text -> Connection -> Server -> Server
+acceptPendingClient :: Text -> Connection -> Server -> ( Server, Client )
 acceptPendingClient clientId clientConn server@Server { serverPendingClients, serverConnectedClients } =
-  server
-    { serverConnectedClients = Map.insert clientId client serverConnectedClients
-    , serverPendingClients = Map.delete clientId serverPendingClients
-    }
+  ( server
+      { serverConnectedClients = Map.insert clientId client serverConnectedClients
+      , serverPendingClients = Map.delete clientId serverPendingClients
+      }
+  , client
+  )
   where
     client :: Client
     client = Client.new clientConn clientId
@@ -120,9 +122,26 @@ removePendingClient clientId server@Server { serverPendingClients } =
 
 
 --------------------------------------------------------------------------------
-removeConnectedClient :: Text -> Server -> Server
-removeConnectedClient clientId server@Server { serverConnectedClients } =
-  server { serverConnectedClients = Map.delete clientId serverConnectedClients }
+removeConnectedClient :: Client -> Server -> Server
+removeConnectedClient
+  client@Client
+    { clientId
+    }
+  server@Server
+    { serverConnectedClients
+    , serverRoomDirectory
+    , serverRooms
+    }
+  = case Map.lookup client serverRoomDirectory of
+      Nothing ->
+        server
+
+      Just name ->
+        server
+          { serverConnectedClients = Map.delete clientId serverConnectedClients
+          , serverRoomDirectory = Map.delete client serverRoomDirectory
+          , serverRooms = Map.update (Room.removeClient client) name serverRooms
+          }
 
 
 --------------------------------------------------------------------------------
@@ -162,8 +181,8 @@ getRoom name = Map.lookup name . serverRooms
 
 --------------------------------------------------------------------------------
 getClientRoom :: Client -> Server -> Maybe Room
-getClientRoom clientId Server { serverRoomDirectory, serverRooms } =
-  Map.lookup clientId serverRoomDirectory >>= flip Map.lookup serverRooms
+getClientRoom client Server { serverRoomDirectory, serverRooms } =
+  Map.lookup client serverRoomDirectory >>= flip Map.lookup serverRooms
 
 
 --------------------------------------------------------------------------------
@@ -172,7 +191,7 @@ joinRoom client roomName server@Server { serverRoomDirectory } =
   server { serverRoomDirectory = Map.insert client roomName serverRoomDirectory }
 
 
---------------------------------------------------------------------------------
+-------------------------------------------------------------------------------- TODO
 leaveRoom :: Client -> Server -> Server
 leaveRoom client server@Server { serverRoomDirectory } =
   server { serverRoomDirectory = Map.delete client serverRoomDirectory }

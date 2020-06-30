@@ -1,114 +1,50 @@
 module Scrabble.Message
-  ( ClientMessage (..)
-  , eitherDecode
-  , joinRoom
-  , leaveRoom
-  , listRooms
-  , newRoom
-  , removeRoom
-  , updateRoom
+  ( Message (..)
+  , ClientMessage (..)
+  , ServerMessage (..)
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Control.Arrow        (left)
-import           Data.Aeson           (FromJSON, Value, (.=), (.:))
-import           Data.Text            (Text)
+import           Data.Foldable           (traverse_)
+import           Data.Text               (Text)
 
-import           Scrabble.Room        (Room)
-import           Scrabble.Server      (Server (..))
+import           Scrabble.Client         (Client (..))
+import           Scrabble.Message.Client (ClientMessage)
+import           Scrabble.Message.Server (ServerMessage)
+import           Scrabble.Server         (Server (..))
 
-import qualified Data.Aeson           as JSON
-import qualified Data.ByteString      as BSS
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.Map.Strict      as Map
-import qualified Data.Text            as Text
+import qualified Network.WebSockets      as WS
 
-
---------------------------------------------------------------------------------
-data ClientMessage
-  = NewRoom Text Int
-  | JoinRoom Text Text
-  | LeaveRoom
+import qualified Scrabble.Message.Client as ClientMessage
+import qualified Scrabble.Message.Server as ServerMessage
+import qualified Scrabble.Server         as Server
 
 
 --------------------------------------------------------------------------------
-instance FromJSON ClientMessage where
-  parseJSON = JSON.withObject "Message" $ \v -> do
-    messageType <- v .: "messageType"
-    messageData <- v .: "messageData"
+class Monad m => Message m where
+  broadcastClients :: Server -> ServerMessage -> m ()
 
-    let withNone = pure
+  broadcastLobby :: Server -> ServerMessage -> m ()
 
-    let withTwo msg p1 p2 =
-          msg <$> messageData .: p1
-              <*> messageData .: p2
+  fromClient :: Client -> m (Either Text ClientMessage)
 
-    case messageType of
-      "newRoom" ->
-        withTwo NewRoom "roomName" "roomCapacity"
+  toClient :: Client -> ServerMessage -> m ()
 
-      "joinRoom" ->
-        withTwo JoinRoom "playerName" "roomName"
+  toClients :: Foldable t => t Client -> ServerMessage -> m ()
 
-      "leaveRoom" ->
-        withNone LeaveRoom
+instance Message IO where
+  broadcastClients Server { serverConnectedClients } =
+    toClients serverConnectedClients
 
-      msgType ->
-        fail $ "Invalid message type '" ++ msgType ++ "'"
+  broadcastLobby server =
+    toClients (Server.clientsInLobby server)
 
+  fromClient =
+    fmap ClientMessage.eitherDecode . WS.receiveData . clientConnection
 
---------------------------------------------------------------------------------
-eitherDecode :: BSS.ByteString -> Either Text ClientMessage
-eitherDecode = left Text.pack . JSON.eitherDecodeStrict'
+  toClient Client { clientConnection } =
+    WS.sendTextData clientConnection . ServerMessage.encode
 
-
---------------------------------------------------------------------------------
-withMessage :: Text -> Value -> BSL.ByteString
-withMessage messageType messageData =
-  JSON.encode $ JSON.object
-    [ "messageType" .= messageType
-    , "messageData" .= messageData
-    ]
-
-
---------------------------------------------------------------------------------
-newRoom :: Room -> BSL.ByteString
-newRoom room =
-  withMessage "newRoom"
-    $ JSON.object [ "room" .= room ]
-
-
---------------------------------------------------------------------------------
-updateRoom :: Room -> BSL.ByteString
-updateRoom room =
-  withMessage "updateRoom"
-    $ JSON.object [ "room" .= room ]
-
-
---------------------------------------------------------------------------------
-removeRoom :: Text -> BSL.ByteString
-removeRoom roomName =
-  withMessage "removeRoom"
-    $ JSON.object [ "roomName" .= roomName ]
-
-
---------------------------------------------------------------------------------
-listRooms :: Server -> BSL.ByteString
-listRooms Server { serverRooms } =
-  withMessage "listRooms"
-    $ JSON.object [ "rooms" .= Map.elems serverRooms ]
-
-
---------------------------------------------------------------------------------
-joinRoom :: Room -> BSL.ByteString
-joinRoom room =
-  withMessage "joinRoom"
-    $ JSON.object [ "room" .= room ]
-
-
---------------------------------------------------------------------------------
-leaveRoom :: Text -> BSL.ByteString
-leaveRoom roomName =
-  withMessage "leaveRoom"
-    $ JSON.object [ "roomName" .= roomName ]
+  toClients clients message =
+    traverse_ (flip toClient message) clients
