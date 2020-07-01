@@ -44,7 +44,7 @@ app mServer request response = do
           } <- modifyMVar mServer $
                 pure . Server.createPendingClient pendingClientTicket
 
-        jwt <- Auth.createClientJwt
+        jwt <- Auth.createClientJWT
                 pendingTimeout
                 pendingAuthSecret
                 pendingClientTicket
