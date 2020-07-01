@@ -29,6 +29,7 @@ import           TextShow                (showt)
 import           Scrabble.Authentication (Secret)
 import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
+import           Scrabble.Log.Level      (LogLevel (..))
 import           Scrabble.Room           (Room (..))
 
 import qualified Data.Map.Strict         as Map
@@ -42,6 +43,7 @@ data Server = Server
   { serverAuthSecret       :: Secret
   , serverClientCounter    :: Int
   , serverConnectedClients :: Map Text Client
+  , serverLogLevel         :: LogLevel
   , serverRoomDirectory    :: Map Client Text
   , serverPendingClients   :: Map Text Text
   , serverPendingTimeout   :: NominalDiffTime
@@ -59,11 +61,12 @@ data PendingParams = PendingParams
 
 --------------------------------------------------------------------------------
 new :: Config -> Server
-new Config { configAuthSecret, configPendingTimeout } =
+new Config { configAuthSecret, configLogLevel, configPendingTimeout } =
   Server
     { serverAuthSecret       = configAuthSecret
     , serverClientCounter    = 0
     , serverConnectedClients = Map.empty
+    , serverLogLevel         = configLogLevel
     , serverRoomDirectory    = Map.empty
     , serverPendingClients   = Map.empty
     , serverPendingTimeout   = configPendingTimeout
