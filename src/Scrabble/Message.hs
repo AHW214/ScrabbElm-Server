@@ -33,6 +33,8 @@ class Monad m => Message m where
 
   toClients :: Foldable t => t Client -> ServerMessage -> m ()
 
+
+--------------------------------------------------------------------------------
 instance Message IO where
   broadcastClients Server { serverConnectedClients } =
     toClients serverConnectedClients
