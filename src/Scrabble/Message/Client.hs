@@ -17,9 +17,10 @@ import qualified Scrabble.Message.Options as Message
 
 --------------------------------------------------------------------------------
 data ClientMessage
-  = ClientNewRoom Text Int
+  = ClientNewRoom Text Int Text
   | ClientJoinRoom Text Text
   | ClientLeaveRoom
+  | ClientStartGame
   deriving Generic
 
 
