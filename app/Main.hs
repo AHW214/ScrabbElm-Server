@@ -16,10 +16,10 @@ import           Text.Read                      (readMaybe)
 import           TextShow                       (showt)
 
 import           Scrabble.Config                (Config (..))
+import           Scrabble.Log                   (Log (..), LogLevel (..))
 
 import qualified Control.Exception              as Exception
 import qualified Data.ByteString.Char8          as BSS
-import qualified Data.Text.IO                   as Text
 import qualified Network.Wai.Handler.Warp       as Warp
 import qualified Network.WebSockets             as WS
 
@@ -35,12 +35,13 @@ main = do
   config@Config { configPort } <- loadConfig
   port <- fromMaybe configPort <$> readCustomPort
 
-  server <- newMVar $ Server.new config
+  let server = Server.new config
+  mServer <- newMVar server
 
-  let wsApp = WebSocket.app server
-  let rqApp = simpleCors $ Request.app server
+  let wsApp = WebSocket.app mServer
+  let rqApp = simpleCors $ Request.app mServer
 
-  Text.putStrLn $ "Listening on port " <> showt port
+  logInfo server $ "Listening on port " <> showt port
 
   Warp.run port $ websocketsOr WS.defaultConnectionOptions wsApp rqApp
   where
@@ -53,11 +54,11 @@ main = do
               pure config
 
             Left errMsg ->
-              Text.putStrLn ("Error: failed to decode config (" <> errMsg <> ")")
+              logAs LogError ("Failed to decode config (" <> errMsg <> ")")
               >> exitFailure
 
         _ ->
-          Text.putStrLn "Warning: using placeholder config"
+          logAs LogWarning "Using placeholder config"
           >> pure Config.placeholder
 
     readCustomPort :: IO (Maybe Port)

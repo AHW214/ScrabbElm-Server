@@ -20,7 +20,9 @@ import qualified Scrabble.Log.Level as LogLevel
 
 --------------------------------------------------------------------------------
 class Monad m => Log m where
-  logAs :: LogLevel -> Logger m
+  logAs :: LogLevel -> Text -> m ()
+
+  logWhen :: LogLevel -> Logger m
 
   logError :: Logger m
 
@@ -30,7 +32,9 @@ class Monad m => Log m where
 
   logDebug :: Logger m
 
-  printAs :: TextShow a => LogLevel -> Printer m a
+  printAs :: TextShow a => LogLevel -> a -> m ()
+
+  printWhen :: TextShow a => LogLevel -> Printer m a
 
   printError :: TextShow a => Printer m a
 
@@ -51,35 +55,41 @@ type Printer m a = Server -> a -> m ()
 
 --------------------------------------------------------------------------------
 instance Log IO where
-  logAs level Server { serverLogLevel } =
+  logAs level =
+    Text.putStrLn . (LogLevel.toTag level <>) . (": " <>)
+
+  logWhen level Server { serverLogLevel } =
     if level >= serverLogLevel then
-      Text.putStrLn . (LogLevel.toTag level <>) . (": " <>)
+      logAs level
     else
       pure . const ()
 
   logError =
-    logAs LogError
+    logWhen LogError
 
   logWarning =
-    logAs LogWarning
+    logWhen LogWarning
 
   logInfo =
-    logAs LogInfo
+    logWhen LogInfo
 
   logDebug =
-    logAs LogDebug
+    logWhen LogDebug
 
-  printAs level server =
-    logAs level server . showt
+  printAs level =
+    logAs level . showt
+
+  printWhen level server =
+    logWhen level server . showt
 
   printError =
-    printAs LogError
+    printWhen LogError
 
   printWarning =
-    printAs LogWarning
+    printWhen LogWarning
 
   printInfo =
-    printAs LogInfo
+    printWhen LogInfo
 
   printDebug =
-    printAs LogDebug
+    printWhen LogDebug
