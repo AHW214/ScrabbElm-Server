@@ -6,18 +6,19 @@ module Scrabble.Message
 
 
 --------------------------------------------------------------------------------
+import           Control.Arrow           (left)
 import           Data.Foldable           (traverse_)
 import           Data.Text               (Text)
 
 import           Scrabble.Client         (Client (..))
-import           Scrabble.Message.Client (ClientMessage)
-import           Scrabble.Message.Server (ServerMessage)
+import           Scrabble.Message.Client (ClientMessage (..))
+import           Scrabble.Message.Server (ServerMessage (..))
 import           Scrabble.Server         (Server (..))
 
+import qualified Data.Aeson              as JSON
+import qualified Data.Text               as Text
 import qualified Network.WebSockets      as WS
 
-import qualified Scrabble.Message.Client as ClientMessage
-import qualified Scrabble.Message.Server as ServerMessage
 import qualified Scrabble.Server         as Server
 
 
@@ -43,10 +44,12 @@ instance Message IO where
     toClients (Server.clientsInLobby server)
 
   fromClient =
-    fmap ClientMessage.eitherDecode . WS.receiveData . clientConnection
+    fmap (left Text.pack . JSON.eitherDecodeStrict')
+    . WS.receiveData
+    . clientConnection
 
   toClient Client { clientConnection } =
-    WS.sendTextData clientConnection . ServerMessage.encode
+    WS.sendTextData clientConnection . JSON.encode
 
   toClients clients message =
     traverse_ (flip toClient message) clients
