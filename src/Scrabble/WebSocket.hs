@@ -16,6 +16,7 @@ import           Scrabble.Client         (Client (..))
 import           Scrabble.Log            (Log (..))
 import           Scrabble.Message        (Message (..), ClientMessage (..),
                                           ServerMessage (..))
+import           Scrabble.Room           (Room (..))
 import           Scrabble.Server         (Server (..))
 
 import qualified Data.Text               as Text
@@ -60,7 +61,7 @@ app mServer pending = do
       Right ( newServer, client@Client { clientId } ) -> do
         modifyMVar_ mServer $ pure . const newServer
         logInfo newServer $ "Client " <> clientId <> " connected"
-        toClient client $ ServerListRooms newServer
+        toClient client $ ServerListRooms (Server.previewRooms newServer)
 
         finally onMessage onDisconnect
         where
@@ -135,8 +136,9 @@ handleMessage client server message =
           if capacity > 0 && capacity <= Room.maxCapacity then
             let
               newRoom = Room.new name capacity
+              newRoomPreview = Room.toPreview newRoom
             in
-              broadcastLobby server (ServerNewRoom newRoom)
+              broadcastLobby server (ServerNewRoom newRoomPreview)
               >> res (Server.addRoom newRoom server)
           else
             err RoomInvalidCapacity
@@ -170,7 +172,7 @@ handleMessage client server message =
 
     ClientLeaveRoom ->
       case Server.getClientRoom client server of
-        Just room ->
+        Just room@Room { roomName } ->
           case Room.getPlayer client room of
             Just player ->
               let
@@ -181,14 +183,14 @@ handleMessage client server message =
                   case maybeRoom of
                     Nothing ->
                       ( Server.leaveRoom client . Server.removeRoom room
-                      , broadcastLobby server $ ServerRemoveRoom room
+                      , broadcastLobby server $ ServerRemoveRoom roomName
                       )
                     Just newRoom ->
                       ( Server.addRoom newRoom
                       , pure ()
                       )
               in
-                toClient client (ServerLeaveRoom room)
+                toClient client (ServerLeaveRoom roomName)
                 >> action
                 >> res (update server)
 

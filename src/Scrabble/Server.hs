@@ -13,6 +13,7 @@ module Scrabble.Server
   , joinRoom
   , leaveRoom
   , new
+  , previewRooms
   , removeConnectedClient
   , removePendingClient
   , removeRoom
@@ -30,7 +31,7 @@ import           Scrabble.Authentication (Secret)
 import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
 import           Scrabble.Log.Level      (LogLevel (..))
-import           Scrabble.Room           (Room (..))
+import           Scrabble.Room           (Room (..), RoomPreview)
 
 import qualified Data.Map.Strict         as Map
 
@@ -180,6 +181,12 @@ removeRoom Room { roomName } server@Server { serverRooms } =
 --------------------------------------------------------------------------------
 getRoom :: Text -> Server -> Maybe Room
 getRoom name = Map.lookup name . serverRooms
+
+
+--------------------------------------------------------------------------------
+previewRooms :: Server -> [ RoomPreview ]
+previewRooms Server { serverRooms } =
+  Map.foldl' (\ps -> (: ps) . Room.toPreview) [] serverRooms
 
 
 --------------------------------------------------------------------------------

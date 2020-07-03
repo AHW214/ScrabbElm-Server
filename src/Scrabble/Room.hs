@@ -1,5 +1,6 @@
 module Scrabble.Room
   ( Room (..)
+  , RoomPreview (..)
   , addPlayer
   , empty
   , getPlayer
@@ -12,21 +13,23 @@ module Scrabble.Room
   , removeClient
   , removePlayer
   , switchTurn
+  , toPreview
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson       (FromJSON, ToJSON, withObject, (.=), (.:))
-import           Data.Map.Strict  (Map)
-import           Data.Text        (Text)
+import           Data.Aeson            (ToJSON, (.=))
+import           Data.Map.Strict       (Map)
+import           Data.Text             (Text)
 
-import           Scrabble.Client  (Client (..))
-import           Scrabble.Player  (Player (..))
+import           Scrabble.Client       (Client (..))
+import           Scrabble.Player       (Player (..))
+import           Scrabble.Room.Preview (RoomPreview (..))
 
-import qualified Data.Aeson       as JSON
-import qualified Data.List        as List
-import qualified Data.Map.Strict  as Map
-import qualified Data.Maybe       as Maybe
+import qualified Data.Aeson            as JSON
+import qualified Data.List             as List
+import qualified Data.Map.Strict       as Map
+import qualified Data.Maybe            as Maybe
 
 
 --------------------------------------------------------------------------------
@@ -40,29 +43,20 @@ data Room = Room
 
 --------------------------------------------------------------------------------
 instance ToJSON Room where
-  toJSON room =
+  toJSON Room { roomCapacity, roomName, roomPlayers, roomPlaying } =
     JSON.object
-      [ "roomName"       .= roomName room
-      , "roomCapacity"   .= roomCapacity room
-      , "roomNumPlayers" .= numPlayers room
-      , "roomInGame"     .= inGame room
+      [ "roomCapacity" .= roomCapacity
+      , "roomName"     .= roomName
+      , "roomPlayers"  .= Map.elems roomPlayers
+      , "roomPlaying"  .= roomPlaying
       ]
 
-  toEncoding room =
+  toEncoding Room { roomCapacity, roomName, roomPlayers, roomPlaying } =
     JSON.pairs
-      $  "roomName"       .= roomName room
-      <> "roomCapacity"   .= roomCapacity room
-      <> "roomNumPlayers" .= numPlayers room
-      <> "roomInGame"     .= inGame room
-
-
---------------------------------------------------------------------------------
-instance FromJSON Room where
-  parseJSON = withObject "Room" $ \v -> do
-    roomName     <- v .: "roomName"
-    roomCapacity <- v .: "roomCapacity"
-
-    pure $ empty { roomName, roomCapacity }
+      $  "roomCapacity" .= roomCapacity
+      <> "roomName"     .= roomName
+      <> "roomPlayers"  .= Map.elems roomPlayers
+      <> "roomPlaying"  .= roomPlaying
 
 
 --------------------------------------------------------------------------------
@@ -87,25 +81,35 @@ new roomName roomCapacity =
 
 
 --------------------------------------------------------------------------------
+toPreview :: Room -> RoomPreview
+toPreview room@Room { roomCapacity, roomName } = RoomPreview
+  { roomPreviewCapacity  = roomCapacity
+  , roomPreviewInGame    = inGame room
+  , roomPreviewName      = roomName
+  , roomPreviewOccupancy = occupancy room
+  }
+
+
+--------------------------------------------------------------------------------
 inGame :: Room -> Bool
 inGame = Maybe.isJust . roomPlaying
 
 
 --------------------------------------------------------------------------------
-numPlayers :: Room -> Int
-numPlayers = length . roomPlayers
+occupancy :: Room -> Int
+occupancy = length . roomPlayers
 
 
 --------------------------------------------------------------------------------
 isFull :: Room -> Bool
 isFull room@Room { roomCapacity } =
-  numPlayers room >= roomCapacity
+  occupancy room >= roomCapacity
 
 
 --------------------------------------------------------------------------------
 isEmpty :: Room -> Bool
 isEmpty room =
-  numPlayers room <= 0
+  occupancy room <= 0
 
 
 --------------------------------------------------------------------------------
