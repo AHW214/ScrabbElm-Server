@@ -2,7 +2,6 @@ module Main where
 
 
 --------------------------------------------------------------------------------
-import           Control.Applicative            ((<|>))
 import           Control.Concurrent             (newMVar)
 import           Control.Monad                  (guard)
 import           Data.ByteString                (ByteString)
@@ -20,7 +19,6 @@ import           Scrabble.Config                (Config (..))
 
 import qualified Control.Exception              as Exception
 import qualified Data.ByteString.Char8          as BSS
-import qualified Data.Foldable                  as Fold
 import qualified Data.Text.IO                   as Text
 import qualified Network.Wai.Handler.Warp       as Warp
 import qualified Network.WebSockets             as WS
@@ -35,9 +33,7 @@ import qualified Scrabble.WebSocket             as WebSocket
 main :: IO ()
 main = do
   config@Config { configPort } <- loadConfig
-  customPort <- readCustomPort
-
-  let port = choosePort defaultPort [ customPort, configPort ]
+  port <- fromMaybe configPort <$> readCustomPort
 
   server <- newMVar $ Server.new config
 
@@ -67,10 +63,6 @@ main = do
     readCustomPort :: IO (Maybe Port)
     readCustomPort = readPort <$> getArgs
 
-    choosePort :: Foldable t => Port -> t (Maybe Port) -> Port
-    choosePort defPort =
-      fromMaybe defPort . Fold.foldl' (<|>) Nothing
-
 
 --------------------------------------------------------------------------------
 readPort :: [ String ] -> Maybe Port
@@ -93,8 +85,3 @@ readFileSafe filePath =
     handleNothing :: () -> IO (Maybe ByteString)
     handleNothing =
       pure . const Nothing
-
-
---------------------------------------------------------------------------------
-defaultPort :: Port
-defaultPort = 3000

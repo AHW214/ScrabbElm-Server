@@ -10,14 +10,15 @@ import           Control.Exception       (finally)
 import           Control.Monad           (forever)
 import           Data.Text               (Text)
 import           Network.WebSockets      (Connection, ServerApp)
+import           TextShow                (TextShow (..), FromStringShow (..))
 
 import           Scrabble.Client         (Client (..))
+import           Scrabble.Log            (Log (..))
 import           Scrabble.Message        (Message (..), ClientMessage (..),
                                           ServerMessage (..))
 import           Scrabble.Server         (Server (..))
 
 import qualified Data.Text               as Text
-import qualified Data.Text.IO            as Text
 import qualified Network.WebSockets      as WS
 
 import qualified Scrabble.Authentication as Auth
@@ -43,44 +44,61 @@ data Error
 
 
 --------------------------------------------------------------------------------
+instance TextShow Error where
+  showbPrec p = showbPrec p . FromStringShow
+
+
+--------------------------------------------------------------------------------
 app :: MVar Server -> ServerApp
 app mServer pending = do
   connection <- WS.acceptRequest pending
-  WS.withPingThread connection 30 (pure ()) $
-    authenticate connection
-    <$> WS.receiveData connection
-    <*> readMVar mServer
-    >>= \case
-          Right ( server, client@Client { clientId } ) ->
-            finally (onConnect >> onMessage) onDisconnect
-            where
-              onConnect :: IO ()
-              onConnect = do
-                modifyMVar_ mServer $ pure . const server
-                Text.putStrLn $ "Client " <> clientId <> " connected"
-                toClient client $ ServerListRooms server
+  WS.withPingThread connection 30 (pure ()) $ do
+    authResponse <- WS.receiveData connection
+    server <- readMVar mServer
 
-              onMessage :: IO ()
-              onMessage = forever $ do
-                message <- receiveMessage client
+    case authenticate connection authResponse server of
+      Right ( newServer, client@Client { clientId } ) -> do
+        modifyMVar_ mServer $ pure . const newServer
+        logInfo newServer $ "Client " <> clientId <> " connected"
+        toClient client $ ServerListRooms newServer
 
-                modifyMVar_ mServer $ \s ->
-                  case message >>= handleMessage client s of
-                    Left err ->
-                      -- Text.putStrLn errMsg (add logging levels)
-                      toClient client (ServerError $ Text.pack $ show err)
-                      >> pure s
+        finally onMessage onDisconnect
+        where
+          onMessage :: IO ()
+          onMessage = forever $ receiveMessage >>= \msg ->
+            modifyMVar_ mServer $ \s -> case msg of
+              Left err ->
+                printError s err
+                >> pure s
 
-                    Right ( s', action ) ->
-                      action >> pure s'
+              Right message ->
+                handleMessage client s message >>= \case
+                  Left err ->
+                    printError s err
+                    >> toClient client (ServerError $ showt err)
+                    >> pure s
 
-              onDisconnect :: IO ()
-              onDisconnect = do
-                modifyMVar_ mServer $ pure . Server.removeConnectedClient client
-                Text.putStrLn $ "Client " <> clientId <> " disconnected"
+                  Right s' ->
+                    pure s'
 
-          Left err ->
-            closeConnection (Text.pack $ show err) connection
+          onDisconnect :: IO ()
+          onDisconnect = modifyMVar_ mServer $ \s ->
+            logInfo s ("Client " <> clientId <> " disconnected")
+            >> pure (Server.removeConnectedClient client s)
+
+          receiveMessage :: Message m => m (Either Error ClientMessage)
+          receiveMessage =
+            left MessageInvalid <$> fromClient client
+
+      Left err -> do
+        let reason = showt err
+
+        logError server $ Text.unlines
+          [ "Closing pending connection"
+          , "Reason: " <> reason
+          ]
+
+        WS.sendClose connection reason
 
 
 --------------------------------------------------------------------------------
@@ -103,18 +121,12 @@ authenticate clientConn clientJWT server@Server { serverAuthSecret } =
 
 
 --------------------------------------------------------------------------------
-receiveMessage :: Message m => Client -> m (Either Error ClientMessage)
-receiveMessage =
-  fmap (left MessageInvalid) . fromClient
-
-
---------------------------------------------------------------------------------
 handleMessage
-  :: Message m
+  :: forall m. (Log m, Message m)
   => Client
   -> Server
   -> ClientMessage
-  -> Either Error ( Server, m () )
+  -> m (Either Error Server)
 handleMessage client server message =
   case message of
     ClientNewRoom name capacity ->
@@ -124,41 +136,37 @@ handleMessage client server message =
             let
               newRoom = Room.new name capacity
             in
-              Right
-                ( Server.addRoom newRoom server
-                , broadcastLobby server $ ServerNewRoom newRoom
-                )
+              broadcastLobby server (ServerNewRoom newRoom)
+              >> res (Server.addRoom newRoom server)
           else
-            Left RoomInvalidCapacity
+            err RoomInvalidCapacity
 
         _ ->
-          Left RoomExists
+          err RoomExists
 
     ClientJoinRoom playerName roomName ->
       case Server.getRoom roomName server of
         Just room ->
           if | Room.inGame room ->
-                Left RoomInGame
+                err RoomInGame
 
              | Room.isFull room ->
-                Left RoomFull
+                err RoomFull
 
              | Room.hasPlayerTag playerName room ->
-                Left RoomHasPlayer
+                err RoomHasPlayer
 
              | otherwise ->
                 let
                   newPlayer = Player.new playerName client
                   newRoom = Room.addPlayer newPlayer room
                 in
-                  Right
-                    ( Server.joinRoom client roomName
-                      $ Server.addRoom newRoom server
-                    , toClient client $ ServerJoinRoom newRoom
-                    )
+                  toClient client (ServerJoinRoom newRoom)
+                  >> res (Server.joinRoom client roomName
+                         $ Server.addRoom newRoom server)
 
         _ ->
-          Left RoomNoEntry
+          err RoomNoEntry
 
     ClientLeaveRoom ->
       case Server.getClientRoom client server of
@@ -180,22 +188,16 @@ handleMessage client server message =
                       , pure ()
                       )
               in
-                Right
-                  ( update server
-                  , toClient client (ServerLeaveRoom room) >> action
-                  )
+                toClient client (ServerLeaveRoom room)
+                >> action
+                >> res (update server)
 
-            _ -> Left RoomMissingPlayer
+            _ -> err RoomMissingPlayer
 
-        _ -> Left RoomNoEntry
+        _ -> err RoomNoEntry
+  where
+    err :: Error -> m (Either Error Server)
+    err = pure . Left
 
-
---------------------------------------------------------------------------------
-closeConnection :: Text -> Connection -> IO ()
-closeConnection reason connection = do
-  Text.putStrLn $ Text.unlines
-    [ "Closing connection"
-    , "Reason: " <> reason
-    ]
-
-  WS.sendClose connection reason
+    res :: Server -> m (Either Error Server)
+    res = pure . Right

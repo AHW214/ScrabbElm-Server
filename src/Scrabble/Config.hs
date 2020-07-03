@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-
 module Scrabble.Config
   ( Config (..)
   , decode
@@ -10,14 +8,14 @@ module Scrabble.Config
 
 --------------------------------------------------------------------------------
 import           Control.Arrow            (left)
-import           Data.Aeson               (FromJSON)
+import           Data.Aeson               (FromJSON, (.:), (.:?), (.!=))
 import           Data.ByteString          (ByteString)
 import           Data.Text                (Text)
 import           Data.Time.Clock          (NominalDiffTime)
-import           GHC.Generics             (Generic)
 import           Network.Wai.Handler.Warp (Port)
 
 import           Scrabble.Authentication  (Secret)
+import           Scrabble.Log.Level       (LogLevel (..))
 
 import qualified Data.Aeson               as JSON
 import qualified Data.Text                as Text
@@ -28,21 +26,28 @@ import qualified Scrabble.Authentication  as Auth
 --------------------------------------------------------------------------------
 data Config = Config
   { configAuthSecret     :: Secret
+  , configLogLevel       :: LogLevel
   , configPendingTimeout :: NominalDiffTime
-  , configPort           :: Maybe Port
-  } deriving Generic
+  , configPort           :: Port
+  }
 
 
 --------------------------------------------------------------------------------
-instance FromJSON Config
+instance FromJSON Config where
+  parseJSON = JSON.withObject "Config" $ \v -> Config
+    <$> v .:  "configAuthSecret"
+    <*> v .:? "configLogLevel"       .!= configLogLevel placeholder
+    <*> v .:  "configPendingTimeout"
+    <*> v .:? "configPort"           .!= configPort placeholder
 
 
 --------------------------------------------------------------------------------
 placeholder :: Config
 placeholder = Config
   { configAuthSecret     = Auth.createSecret "PLACEHOLDER AUTH KEY"
+  , configLogLevel       = LogWarning
   , configPendingTimeout = 5
-  , configPort           = Just 3000
+  , configPort           = 3000
   }
 
 
