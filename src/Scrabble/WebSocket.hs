@@ -19,7 +19,6 @@ import           Scrabble.Message        (Message (..), ClientMessage (..),
 import           Scrabble.Server         (Server (..))
 
 import qualified Data.Text               as Text
-import qualified Data.Text.IO            as Text
 import qualified Network.WebSockets      as WS
 
 import qualified Scrabble.Authentication as Auth
@@ -53,53 +52,53 @@ instance TextShow Error where
 app :: MVar Server -> ServerApp
 app mServer pending = do
   connection <- WS.acceptRequest pending
-  WS.withPingThread connection 30 (pure ()) $
-    authenticate connection
-    <$> WS.receiveData connection
-    <*> readMVar mServer
-    >>= \case
-          Right ( server, client@Client { clientId } ) -> do
-            modifyMVar_ mServer $ pure . const server
-            logInfo server $ "Client " <> clientId <> " connected"
-            toClient client $ ServerListRooms server
+  WS.withPingThread connection 30 (pure ()) $ do
+    authResponse <- WS.receiveData connection
+    server <- readMVar mServer
 
-            finally onMessage onDisconnect
-            where
-              onMessage :: IO ()
-              onMessage = forever $ receiveMessage >>= \msg ->
-                modifyMVar_ mServer $ \s -> case msg of
+    case authenticate connection authResponse server of
+      Right ( newServer, client@Client { clientId } ) -> do
+        modifyMVar_ mServer $ pure . const newServer
+        logInfo newServer $ "Client " <> clientId <> " connected"
+        toClient client $ ServerListRooms newServer
+
+        finally onMessage onDisconnect
+        where
+          onMessage :: IO ()
+          onMessage = forever $ receiveMessage >>= \msg ->
+            modifyMVar_ mServer $ \s -> case msg of
+              Left err ->
+                printError s err
+                >> pure s
+
+              Right message ->
+                handleMessage client s message >>= \case
                   Left err ->
                     printError s err
+                    >> toClient client (ServerError $ showt err)
                     >> pure s
 
-                  Right message ->
-                    handleMessage client s message >>= \case
-                      Left err ->
-                        printError s err
-                        >> toClient client (ServerError $ showt err)
-                        >> pure s
+                  Right s' ->
+                    pure s'
 
-                      Right s' ->
-                        pure s'
+          onDisconnect :: IO ()
+          onDisconnect = modifyMVar_ mServer $ \s ->
+            logInfo s ("Client " <> clientId <> " disconnected")
+            >> pure (Server.removeConnectedClient client s)
 
-              onDisconnect :: IO ()
-              onDisconnect = modifyMVar_ mServer $ \s ->
-                logInfo s ("Client " <> clientId <> " disconnected")
-                >> pure (Server.removeConnectedClient client s)
+          receiveMessage :: Message m => m (Either Error ClientMessage)
+          receiveMessage =
+            left MessageInvalid <$> fromClient client
 
-              receiveMessage :: Message m => m (Either Error ClientMessage)
-              receiveMessage =
-                left MessageInvalid <$> fromClient client
+      Left err -> do
+        let reason = showt err
 
-          Left err -> do
-            let reason = showt err
+        logError server $ Text.unlines
+          [ "Closing pending connection"
+          , "Reason: " <> reason
+          ]
 
-            Text.putStrLn $ Text.unlines -- todo: need server then can use log wrapper (read mServer with do block binding)
-              [ "Closing pending connection"
-              , "Reason: " <> reason
-              ]
-
-            WS.sendClose connection reason
+        WS.sendClose connection reason
 
 
 --------------------------------------------------------------------------------
