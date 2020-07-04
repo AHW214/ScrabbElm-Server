@@ -6,8 +6,8 @@ module Scrabble.Server
   , clientExists
   , clientsInLobby
   , createPendingClient
-  , getClientRoom
   , getPendingClient
+  , getPlayerInfo
   , getRoom
   , inRoom
   , joinRoom
@@ -31,6 +31,7 @@ import           Scrabble.Authentication (Secret)
 import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
 import           Scrabble.Log.Level      (LogLevel (..))
+import           Scrabble.Player         (Player)
 import           Scrabble.Room           (Room (..), RoomPreview)
 
 import qualified Data.Map.Strict         as Map
@@ -127,25 +128,8 @@ removePendingClient clientId server@Server { serverPendingClients } =
 
 --------------------------------------------------------------------------------
 removeConnectedClient :: Client -> Server -> Server
-removeConnectedClient
-  client@Client
-    { clientId
-    }
-  server@Server
-    { serverConnectedClients
-    , serverRoomDirectory
-    , serverRooms
-    }
-  = case Map.lookup client serverRoomDirectory of
-      Nothing ->
-        server
-
-      Just name ->
-        server
-          { serverConnectedClients = Map.delete clientId serverConnectedClients
-          , serverRoomDirectory = Map.delete client serverRoomDirectory
-          , serverRooms = Map.update (Room.removeClient client) name serverRooms
-          }
+removeConnectedClient Client { clientId } server@Server { serverConnectedClients } =
+  server { serverConnectedClients = Map.delete clientId serverConnectedClients }
 
 
 --------------------------------------------------------------------------------
@@ -190,9 +174,11 @@ previewRooms Server { serverRooms } =
 
 
 --------------------------------------------------------------------------------
-getClientRoom :: Client -> Server -> Maybe Room
-getClientRoom client Server { serverRoomDirectory, serverRooms } =
-  Map.lookup client serverRoomDirectory >>= flip Map.lookup serverRooms
+getPlayerInfo :: Client -> Server -> Maybe ( Player, Room )
+getPlayerInfo client Server { serverRoomDirectory, serverRooms } = do
+  room <- flip Map.lookup serverRooms =<< Map.lookup client serverRoomDirectory
+  player <- Room.getPlayer client room
+  pure ( player, room )
 
 
 --------------------------------------------------------------------------------
@@ -201,7 +187,7 @@ joinRoom client roomName server@Server { serverRoomDirectory } =
   server { serverRoomDirectory = Map.insert client roomName serverRoomDirectory }
 
 
--------------------------------------------------------------------------------- TODO
+--------------------------------------------------------------------------------
 leaveRoom :: Client -> Server -> Server
 leaveRoom client server@Server { serverRoomDirectory } =
   server { serverRoomDirectory = Map.delete client serverRoomDirectory }

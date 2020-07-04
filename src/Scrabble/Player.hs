@@ -23,6 +23,12 @@ data Player = Player
 
 
 --------------------------------------------------------------------------------
+instance Eq Player where
+  Player { playerName = nameOne } == Player { playerName = nameTwo } =
+    nameOne == nameTwo
+
+
+--------------------------------------------------------------------------------
 instance ToJSON Player where
   toJSON Player { playerName, playerScore } =
     JSON.object

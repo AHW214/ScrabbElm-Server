@@ -2,12 +2,13 @@ module Scrabble.Room
   ( Room (..)
   , RoomPreview (..)
   , addPlayer
-  , empty
+  , getClients
   , getPlayer
   , hasPlayerTag
   , inGame
   , isEmpty
   , isFull
+  , isPlayerOwner
   , maxCapacity
   , new
   , removeClient
@@ -36,6 +37,7 @@ import qualified Data.Maybe            as Maybe
 data Room = Room
   { roomCapacity :: Int
   , roomName     :: Text
+  , roomOwner    :: Player
   , roomPlayers  :: Map Client Player
   , roomPlaying  :: Maybe Player
   }
@@ -43,18 +45,20 @@ data Room = Room
 
 --------------------------------------------------------------------------------
 instance ToJSON Room where
-  toJSON Room { roomCapacity, roomName, roomPlayers, roomPlaying } =
+  toJSON Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
     JSON.object
       [ "roomCapacity" .= roomCapacity
       , "roomName"     .= roomName
+      , "roomOwner"    .= roomOwner
       , "roomPlayers"  .= Map.elems roomPlayers
       , "roomPlaying"  .= roomPlaying
       ]
 
-  toEncoding Room { roomCapacity, roomName, roomPlayers, roomPlaying } =
+  toEncoding Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
     JSON.pairs
       $  "roomCapacity" .= roomCapacity
       <> "roomName"     .= roomName
+      <> "roomOwner"    .= roomOwner
       <> "roomPlayers"  .= Map.elems roomPlayers
       <> "roomPlaying"  .= roomPlaying
 
@@ -65,19 +69,14 @@ maxCapacity = 4
 
 
 --------------------------------------------------------------------------------
-empty :: Room
-empty = Room
-  { roomCapacity = maxCapacity
-  , roomName     = ""
+new :: Text -> Int -> Player -> Room
+new name capacity owner = Room
+  { roomCapacity = capacity
+  , roomName     = name
+  , roomOwner    = owner
   , roomPlayers  = Map.empty
   , roomPlaying  = Nothing
   }
-
-
---------------------------------------------------------------------------------
-new :: Text -> Int -> Room
-new roomName roomCapacity =
-  empty { roomCapacity, roomName }
 
 
 --------------------------------------------------------------------------------
@@ -114,8 +113,12 @@ isEmpty room =
 
 --------------------------------------------------------------------------------
 getPlayer :: Client -> Room -> Maybe Player
-getPlayer client =
-  Map.lookup client . roomPlayers
+getPlayer client = Map.lookup client . roomPlayers
+
+
+--------------------------------------------------------------------------------
+getClients :: Room -> [ Client ]
+getClients = Map.keys . roomPlayers
 
 
 --------------------------------------------------------------------------------
@@ -139,6 +142,11 @@ removePlayer = removeClient . playerClient
 switchTurn :: Player -> Room -> Room
 switchTurn player room =
   room { roomPlaying = Just player }
+
+
+--------------------------------------------------------------------------------
+isPlayerOwner :: Player -> Room -> Bool
+isPlayerOwner player = (player ==) . roomOwner
 
 
 --------------------------------------------------------------------------------

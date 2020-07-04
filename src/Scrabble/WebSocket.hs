@@ -5,9 +5,10 @@ module Scrabble.WebSocket
 
 --------------------------------------------------------------------------------
 import           Control.Arrow           (left)
-import           Control.Concurrent      (MVar, modifyMVar_, readMVar)
+import           Control.Concurrent      (MVar, modifyMVar, modifyMVar_,
+                                          readMVar)
 import           Control.Exception       (finally)
-import           Control.Monad           (forever)
+import           Control.Monad           (forever, join)
 import           Data.Text               (Text)
 import           Network.WebSockets      (Connection, ServerApp)
 import           TextShow                (TextShow (..), FromStringShow (..))
@@ -16,6 +17,7 @@ import           Scrabble.Client         (Client (..))
 import           Scrabble.Log            (Log (..))
 import           Scrabble.Message        (Message (..), ClientMessage (..),
                                           ServerMessage (..))
+import           Scrabble.Player         (Player (..))
 import           Scrabble.Room           (Room (..))
 import           Scrabble.Server         (Server (..))
 
@@ -33,7 +35,9 @@ data Error
   = AuthFormatInvalid
   | AuthTicketInvalid
   | AuthIdentityInvalid
+  | ClientNotInRoom
   | MessageInvalid Text
+  | PlayerNotRoomOwner
   | RoomExists
   | RoomFull
   | RoomHasPlayer
@@ -66,26 +70,37 @@ app mServer pending = do
         finally onMessage onDisconnect
         where
           onMessage :: IO ()
-          onMessage = forever $ receiveMessage >>= \msg ->
-            modifyMVar_ mServer $ \s -> case msg of
-              Left err ->
-                printError s err
-                >> pure s
+          onMessage = forever $ receiveMessage >>= \case
+            Left err ->
+              printError newServer err
 
-              Right message ->
-                handleMessage client s message >>= \case
-                  Left err ->
-                    printError s err
-                    >> toClient client (ServerError $ showt err)
-                    >> pure s
+            Right msg ->
+              join $ modifyMVar mServer $ \s ->
+                case handleMessage client s msg of
+                  Left err -> pure
+                    ( s
+                    , printError s err
+                      >> toClient client (ServerError $ showt err)
+                    )
 
-                  Right s' ->
-                    pure s'
+                  Right res ->
+                    pure res
 
           onDisconnect :: IO ()
-          onDisconnect = modifyMVar_ mServer $ \s ->
-            logInfo s ("Client " <> clientId <> " disconnected")
-            >> pure (Server.removeConnectedClient client s)
+          onDisconnect = join $ modifyMVar mServer $ \s ->
+            let
+              ( s', action ) =
+                case Server.getPlayerInfo client s of
+                  Just ( player, room ) ->
+                    evictPlayer player room s
+
+                  _ ->
+                    ( s, pure () )
+            in
+              pure
+                ( Server.removeConnectedClient client s'
+                , action >> logInfo s' ("Client " <> clientId <> " disconnected")
+                )
 
           receiveMessage :: Message m => m (Either Error ClientMessage)
           receiveMessage =
@@ -127,79 +142,95 @@ handleMessage
   => Client
   -> Server
   -> ClientMessage
-  -> m (Either Error Server)
+  -> Either Error ( Server, m () )
 handleMessage client server message =
   case message of
-    ClientNewRoom name capacity ->
-      case Server.getRoom name server of
+    ClientNewRoom roomName capacity playerName ->
+      case Server.getRoom roomName server of
         Nothing ->
           if capacity > 0 && capacity <= Room.maxCapacity then
             let
-              newRoom = Room.new name capacity
+              owner = Player.new playerName client
+              newRoom = Room.new roomName capacity owner
               newRoomPreview = Room.toPreview newRoom
             in
-              broadcastLobby server (ServerNewRoom newRoomPreview)
-              >> res (Server.addRoom newRoom server)
+              Right
+                ( Server.addRoom newRoom server
+                , broadcastLobby server (ServerNewRoom newRoomPreview) -- exclude client who made room ?
+                )
           else
-            err RoomInvalidCapacity
+            Left RoomInvalidCapacity
 
         _ ->
-          err RoomExists
+          Left RoomExists
 
     ClientJoinRoom playerName roomName ->
       case Server.getRoom roomName server of
         Just room ->
           if | Room.inGame room ->
-                err RoomInGame
+                Left RoomInGame
 
              | Room.isFull room ->
-                err RoomFull
+                Left RoomFull
 
              | Room.hasPlayerTag playerName room ->
-                err RoomHasPlayer
+                Left RoomHasPlayer
 
              | otherwise ->
                 let
                   newPlayer = Player.new playerName client
                   newRoom = Room.addPlayer newPlayer room
                 in
-                  toClient client (ServerJoinRoom newRoom)
-                  >> res (Server.joinRoom client roomName
-                         $ Server.addRoom newRoom server)
+                  Right
+                    ( Server.joinRoom client roomName
+                      $ Server.addRoom newRoom server
+                    , broadcastRoom newRoom (ServerPlayerJoinRoom playerName)
+                      >> toClient client (ServerJoinRoom newRoom)
+                    )
 
         _ ->
-          err RoomNoEntry
+          Left RoomNoEntry
 
     ClientLeaveRoom ->
-      case Server.getClientRoom client server of
-        Just room@Room { roomName } ->
-          case Room.getPlayer client room of
-            Just player ->
-              let
-                maybeRoom =
-                  Room.removePlayer player room
+      case Server.getPlayerInfo client server of
+        Just ( player, room ) ->
+          Right $ evictPlayer player room server
 
-                ( update, action ) =
-                  case maybeRoom of
-                    Nothing ->
-                      ( Server.leaveRoom client . Server.removeRoom room
-                      , broadcastLobby server $ ServerRemoveRoom roomName
-                      )
-                    Just newRoom ->
-                      ( Server.addRoom newRoom
-                      , pure ()
-                      )
-              in
-                toClient client (ServerLeaveRoom roomName)
-                >> action
-                >> res (update server)
+        _ ->
+          Left ClientNotInRoom
 
-            _ -> err RoomMissingPlayer
+    ClientStartGame ->
+      case Server.getPlayerInfo client server of
+        Nothing ->
+          Left ClientNotInRoom
 
-        _ -> err RoomNoEntry
+        Just ( player, room ) | Room.isPlayerOwner player room ->
+          let
+            newRoom = Room.switchTurn player room
+          in
+            Right
+              ( Server.addRoom newRoom server
+              , pure () -- send racks
+              )
+
+        _ ->
+          Left PlayerNotRoomOwner
+
+
+--------------------------------------------------------------------------------
+evictPlayer :: Message m => Player -> Room -> Server -> ( Server, m () )
+evictPlayer player@Player { playerClient, playerName } room@Room { roomName } server =
+  ( update server
+  , toClient playerClient (ServerLeaveRoom roomName) >> action -- dont message client if on disconnect
+  )
   where
-    err :: Error -> m (Either Error Server)
-    err = pure . Left
-
-    res :: Server -> m (Either Error Server)
-    res = pure . Right
+    ( update, action ) =
+      case Room.removePlayer player room of
+        Nothing ->
+          ( Server.leaveRoom playerClient . Server.removeRoom room
+          , broadcastLobby server $ ServerRemoveRoom roomName
+          )
+        Just newRoom ->
+          ( Server.addRoom newRoom
+          , broadcastRoom newRoom (ServerPlayerLeaveRoom playerName)
+          )

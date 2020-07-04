@@ -25,6 +25,9 @@ data ServerMessage
   | ServerListRooms [ RoomPreview ]
   | ServerJoinRoom Room
   | ServerLeaveRoom Text
+  | ServerPlayerJoinRoom Text
+  | ServerPlayerLeaveRoom Text
+  | ServerStartGame
   | ServerError Text -- use adt
   deriving Generic
 
