@@ -32,7 +32,7 @@ import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
 import           Scrabble.Log.Level      (LogLevel (..))
 import           Scrabble.Player         (Player)
-import           Scrabble.Room           (Room (..), RoomPreview)
+import           Scrabble.Room           (Room (..), RoomView)
 
 import qualified Data.Map.Strict         as Map
 
@@ -168,9 +168,9 @@ getRoom name = Map.lookup name . serverRooms
 
 
 --------------------------------------------------------------------------------
-previewRooms :: Server -> [ RoomPreview ]
+previewRooms :: Server -> [ RoomView ]
 previewRooms Server { serverRooms } =
-  Map.foldl' (\ps -> (: ps) . Room.toPreview) [] serverRooms
+  Map.foldl' (\ps -> (: ps) . Room.toView) [] serverRooms
 
 
 --------------------------------------------------------------------------------

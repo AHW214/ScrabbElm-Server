@@ -173,7 +173,7 @@ wsApp lobbyChannel pendingConnection = do
     where
       onMessage :: TChan ClientEvent -> Connection -> IO ()
       onMessage channel = forever .
-        tellChannelIO channel . ClientInbound <=< WS.receiveData
+        tellChannelIO channel . ClientInbound <=< undefined -- WS.receiveData
 
       onDisconnect :: TChan ClientEvent -> IO ()
       onDisconnect =

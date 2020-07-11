@@ -1,6 +1,6 @@
 module Scrabble.Room
   ( Room (..)
-  , RoomPreview (..)
+  , RoomView (..)
   , addPlayer
   , getClients
   , getPlayer
@@ -14,7 +14,7 @@ module Scrabble.Room
   , removeClient
   , removePlayer
   , switchTurn
-  , toPreview
+  , toView
   ) where
 
 
@@ -25,7 +25,7 @@ import           Data.Text             (Text)
 
 import           Scrabble.Client       (Client (..))
 import           Scrabble.Player       (Player (..))
-import           Scrabble.Room.Preview (RoomPreview (..))
+import           Scrabble.Room.View    (RoomView (..))
 
 import qualified Data.Aeson            as JSON
 import qualified Data.List             as List
@@ -80,12 +80,12 @@ new name capacity owner = Room
 
 
 --------------------------------------------------------------------------------
-toPreview :: Room -> RoomPreview
-toPreview room@Room { roomCapacity, roomName } = RoomPreview
-  { roomPreviewCapacity  = roomCapacity
-  , roomPreviewInGame    = inGame room
-  , roomPreviewName      = roomName
-  , roomPreviewOccupancy = occupancy room
+toView :: Room -> RoomView
+toView room@Room { roomCapacity, roomName } = RoomView
+  { roomViewCapacity  = roomCapacity
+  , roomViewInGame    = inGame room
+  , roomViewName      = roomName
+  , roomViewOccupancy = occupancy room
   }
 
 

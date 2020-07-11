@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
-module Scrabble.Room.Preview
-  ( RoomPreview (..)
+module Scrabble.Room.View
+  ( RoomView (..)
   ) where
 
 
@@ -12,13 +12,13 @@ import           GHC.Generics (Generic)
 
 
 --------------------------------------------------------------------------------
-data RoomPreview = RoomPreview
-  { roomPreviewCapacity  :: Int
-  , roomPreviewInGame    :: Bool
-  , roomPreviewName      :: Text
-  , roomPreviewOccupancy :: Int
+data RoomView = RoomView
+  { roomViewCapacity  :: Int
+  , roomViewInGame    :: Bool
+  , roomViewName      :: Text
+  , roomViewOccupancy :: Int
   } deriving Generic
 
 
 --------------------------------------------------------------------------------
-instance ToJSON RoomPreview
+instance ToJSON RoomView
