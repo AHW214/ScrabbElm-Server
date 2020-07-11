@@ -7,7 +7,7 @@ module Scrabble.Things
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent.STM         (STM, TChan)
-import           Control.Monad                  (forever)
+import           Control.Monad                  (forever, (<=<))
 import           Data.Map                       (Map)
 import           Data.Text                      (Text)
 import           Network.Wai                    (Application)
@@ -87,7 +87,8 @@ data LobbyEvent
 --------------------------------------------------------------------------------
 data RoomEvent
   = RoomPlayerJoin Text Client
-  | RoomPlayerLeave Client
+  | RoomPlayerLeave Client Bool -- dont use bool
+  | RoomPlayerDisconnect Client
 
 
 --------------------------------------------------------------------------------
@@ -96,6 +97,7 @@ data ClientEvent
   | ClientOutbound Text
   | ClientRoomJoin (TChan RoomEvent)
   | ClientRoomLeave
+  | ClientDisconnect
 
 
 --------------------------------------------------------------------------------
@@ -164,11 +166,18 @@ wsApp lobbyChannel pendingConnection = do
           , clientRoomChannel = Nothing
           }
 
-    Async.race_ (processClientChannel lobbyChannel clientChannel client) $ forever $ do
-      msg <- WS.receiveData connection -- TODO handle disconnect
-      tellChannelIO clientChannel $ ClientInbound msg
+    Async.async $ processClientChannel lobbyChannel clientChannel client
+    Async.async $ onMessage clientChannel connection >> onDisconnect clientChannel
 
     tellChannelIO lobbyChannel $ LobbyClientJoin client
+    where
+      onMessage :: TChan ClientEvent -> Connection -> IO ()
+      onMessage channel = forever .
+        tellChannelIO channel . ClientInbound <=< WS.receiveData
+
+      onDisconnect :: TChan ClientEvent -> IO ()
+      onDisconnect =
+        flip tellChannelIO ClientDisconnect
 
 
 -------------------------------------------------------------------------------
@@ -248,11 +257,11 @@ roomEventHandler lobbyChannel room@Room { roomChannel, roomPlayers } = \case
   RoomPlayerJoin playerName client@Client { clientChannel } ->
     if | roomInGame room -> do
           tellChannelIO clientChannel $ ClientOutbound "in game error placeholder"
-          pure $ Result room
+          pure Skip
 
        | playerInRoom playerName -> do
           tellChannelIO clientChannel $ ClientOutbound "player name taken error placeholder"
-          pure $ Result room
+          pure Skip
 
        | otherwise -> do
           let
@@ -268,20 +277,21 @@ roomEventHandler lobbyChannel room@Room { roomChannel, roomPlayers } = \case
           STM.atomically $ STM.writeTChan lobbyChannel (LobbyClientLeave client)
                          >> STM.writeTChan lobbyChannel (LobbyRoomUpdate newRoom)
                          >> STM.writeTChan clientChannel (ClientRoomJoin roomChannel)
-                         >> tellPlayers (ClientOutbound "player joined placeholder")
+                         >> tellPlayers roomPlayers (ClientOutbound "player joined placeholder")
 
           pure $ Result newRoom
 
-  RoomPlayerLeave client@Client { clientChannel } ->
+  RoomPlayerLeave client@Client { clientChannel } disconnected ->
     if clientInRoom client then do
       let
         newRoomPlayers =
           Map.delete client roomPlayers
 
-        ( continuation, lobbyEvent ) =
+        ( continuation, lobbyEvent, playerAction ) =
           if null newRoomPlayers then
             ( End
             , LobbyRoomRemove room
+            , pure ()
             )
           else
             let
@@ -291,21 +301,30 @@ roomEventHandler lobbyChannel room@Room { roomChannel, roomPlayers } = \case
             in
               ( Result newRoom
               , LobbyRoomUpdate newRoom
+              , tellPlayers newRoomPlayers (ClientOutbound "player left placeholder")
               )
 
-      STM.atomically $ STM.writeTChan lobbyChannel (LobbyClientJoin client)
-                     >> STM.writeTChan lobbyChannel lobbyEvent
-                     >> STM.writeTChan clientChannel ClientRoomLeave
-                     >> tellPlayers (ClientOutbound "player left placeholder")
+        clientAction =
+          if disconnected then
+            pure ()
+          else
+            STM.writeTChan clientChannel ClientRoomLeave
+
+      STM.atomically $ STM.writeTChan lobbyChannel lobbyEvent
+                     >> STM.writeTChan lobbyChannel (LobbyClientJoin client)
+                     >> clientAction
+                     >> playerAction
 
       pure continuation
+    else if disconnected then
+      pure Skip
     else do
       tellChannelIO clientChannel $ ClientOutbound "client not in room error placeholder"
-      pure $ Result room
+      pure Skip
   where
-    tellPlayers :: ClientEvent -> STM ()
-    tellPlayers =
-      broadcastChannels (clientChannel <$> Map.keys roomPlayers) -- TODO only tell players in room
+    tellPlayers :: Map Client v -> ClientEvent -> STM ()
+    tellPlayers players =
+      broadcastChannels (clientChannel <$> Map.keys players)
 
     clientInRoom :: Client -> Bool
     clientInRoom = flip Map.member roomPlayers
@@ -354,7 +373,15 @@ clientEventHandler
 
       ClientOutbound message -> do
         sendClient message
-        pure $ Result client
+        pure Skip
+
+      ClientDisconnect -> const (pure End) $
+        case clientRoomChannel of
+          Just roomChannel ->
+            tellChannelIO roomChannel $ RoomPlayerLeave client True -- dont use bool
+
+          _ ->
+            tellChannelIO lobbyChannel $ LobbyClientLeave client
   where
     sendClient :: Text -> IO ()
     sendClient = WS.sendTextData clientConnection
