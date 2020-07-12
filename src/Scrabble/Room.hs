@@ -1,5 +1,6 @@
 module Scrabble.Room
   ( Room (..)
+  , RoomEvent (..)
   , RoomView (..)
   , addPlayer
   , getClients
@@ -19,18 +20,18 @@ module Scrabble.Room
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson            (ToJSON, (.=))
-import           Data.Map.Strict       (Map)
-import           Data.Text             (Text)
+import           Control.Concurrent.STM (TBQueue)
+import           Data.Aeson             (ToJSON, (.=))
+import           Data.Map.Strict        (Map)
+import           Data.Text              (Text)
 
-import           Scrabble.Client       (Client (..))
-import           Scrabble.Player       (Player (..))
-import           Scrabble.Room.View    (RoomView (..))
+import           Scrabble.Client        (Client (..))
+import           Scrabble.Player        (Player (..))
 
-import qualified Data.Aeson            as JSON
-import qualified Data.List             as List
-import qualified Data.Map.Strict       as Map
-import qualified Data.Maybe            as Maybe
+import qualified Data.Aeson             as JSON
+import qualified Data.List              as List
+import qualified Data.Map.Strict        as Map
+import qualified Data.Maybe             as Maybe
 
 
 --------------------------------------------------------------------------------
@@ -40,27 +41,80 @@ data Room = Room
   , roomOwner    :: Player
   , roomPlayers  :: Map Client Player
   , roomPlaying  :: Maybe Player
+  , roomQueue    :: TBQueue RoomEvent
   }
 
 
 --------------------------------------------------------------------------------
-instance ToJSON Room where
-  toJSON Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
-    JSON.object
-      [ "roomCapacity" .= roomCapacity
-      , "roomName"     .= roomName
-      , "roomOwner"    .= roomOwner
-      , "roomPlayers"  .= Map.elems roomPlayers
-      , "roomPlaying"  .= roomPlaying
-      ]
+data RoomView = RoomView
+  { roomViewCapacity  :: Int
+  , roomViewInGame    :: Bool
+  , roomViewName      :: Text
+  , roomViewOccupancy :: Int
+  , roomViewQueue     :: TBQueue RoomEvent
+  }
 
-  toEncoding Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
-    JSON.pairs
-      $  "roomCapacity" .= roomCapacity
-      <> "roomName"     .= roomName
-      <> "roomOwner"    .= roomOwner
-      <> "roomPlayers"  .= Map.elems roomPlayers
-      <> "roomPlaying"  .= roomPlaying
+
+--------------------------------------------------------------------------------
+data RoomEvent
+  = RoomPlayerJoin Text Client
+  | RoomPlayerLeave Client
+
+
+--------------------------------------------------------------------------------
+instance ToJSON Room where
+  toJSON Room
+    { roomCapacity
+    , roomName
+    , roomOwner
+    , roomPlayers
+    , roomPlaying
+    } = JSON.object
+          [ "roomCapacity" .= roomCapacity
+          , "roomName"     .= roomName
+          , "roomOwner"    .= roomOwner
+          , "roomPlayers"  .= Map.elems roomPlayers
+          , "roomPlaying"  .= roomPlaying
+          ]
+
+  toEncoding Room
+    { roomCapacity
+    , roomName
+    , roomOwner
+    , roomPlayers
+    , roomPlaying
+    } = JSON.pairs
+          $  "roomCapacity" .= roomCapacity
+          <> "roomName"     .= roomName
+          <> "roomOwner"    .= roomOwner
+          <> "roomPlayers"  .= Map.elems roomPlayers
+          <> "roomPlaying"  .= roomPlaying
+
+
+--------------------------------------------------------------------------------
+instance ToJSON RoomView where
+  toJSON RoomView
+    { roomViewCapacity
+    , roomViewInGame
+    , roomViewName
+    , roomViewOccupancy
+    } = JSON.object
+          [ "roomViewCapacity"  .= roomViewCapacity
+          , "roomViewInGame"    .= roomViewInGame
+          , "roomViewName"      .= roomViewName
+          , "roomViewOccupancy" .= roomViewOccupancy
+          ]
+
+  toEncoding RoomView
+    { roomViewCapacity
+    , roomViewInGame
+    , roomViewName
+    , roomViewOccupancy
+    } = JSON.pairs
+          $ "roomViewCapacity"   .= roomViewCapacity
+          <> "roomViewInGame"    .= roomViewInGame
+          <> "roomViewName"      .= roomViewName
+          <> "roomViewOccupancy" .= roomViewOccupancy
 
 
 --------------------------------------------------------------------------------
@@ -69,23 +123,25 @@ maxCapacity = 4
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Player -> Room
-new name capacity owner = Room
-  { roomCapacity = capacity
-  , roomName     = name
-  , roomOwner    = owner
+new :: Text -> Int -> Player -> TBQueue RoomEvent -> Room
+new roomName roomCapacity roomOwner roomQueue = Room
+  { roomCapacity
+  , roomName
+  , roomOwner
   , roomPlayers  = Map.empty
   , roomPlaying  = Nothing
+  , roomQueue
   }
 
 
 --------------------------------------------------------------------------------
 toView :: Room -> RoomView
-toView room@Room { roomCapacity, roomName } = RoomView
+toView room@Room { roomCapacity, roomName, roomQueue } = RoomView
   { roomViewCapacity  = roomCapacity
   , roomViewInGame    = inGame room
   , roomViewName      = roomName
   , roomViewOccupancy = occupancy room
+  , roomViewQueue     = roomQueue
   }
 
 

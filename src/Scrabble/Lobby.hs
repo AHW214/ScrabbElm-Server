@@ -1,5 +1,12 @@
 module Scrabble.Lobby
-  (
+  ( Lobby (..)
+  , LobbyEvent (..)
+  , addClient
+  , addRoomView
+  , getRoomView
+  , removeClient
+  , removeRoomView
+  , updateRoomView
   ) where
 
 
@@ -8,18 +15,17 @@ import           Control.Concurrent.STM (TBQueue)
 import           Data.Map               (Map)
 import           Data.Text              (Text)
 
-import           Scrabble.Client        (Client (..))
-import           Scrabble.Room          (Room, RoomView (..))
+import           Scrabble.Client        (Client (..), ClientEvent)
+import           Scrabble.Room          (Room (..), RoomView (..))
 
 import qualified Data.Map               as Map
 
-import qualified Scrabble.Player        as Player
 import qualified Scrabble.Room          as Room
 
 
 --------------------------------------------------------------------------------
 data Lobby = Lobby
-  { lobbyClientQueues :: Map Text Text -- todo
+  { lobbyClientQueues :: Map Text (TBQueue ClientEvent)
   , lobbyQueue        :: TBQueue LobbyEvent
   , lobbyRoomViews    :: Map Text RoomView
   }
@@ -29,44 +35,35 @@ data Lobby = Lobby
 data LobbyEvent
   = LobbyClientJoin Client
   | LobbyClientLeave Client
-  | LobbyRoomMake Text Text Client
+  | LobbyRoomMake Text Int Text Client
+  | LobbyRoomRun Room
   | LobbyRoomJoin Text Text Client
   | LobbyRoomUpdate Room
   | LobbyRoomRemove Room
 
 
 --------------------------------------------------------------------------------
-eventHandler :: Lobby -> LobbyEvent -> ( Lobby, IO () )
-eventHandler
-  lobby@Lobby
-    { lobbyClientQueues
-    , lobbyQueue
-    , lobbyRoomViews
-    }
-  = \case
-      LobbyClientJoin client ->
-        ( addClient client lobby
-        , pure ()
-        )
-
-      LobbyClientLeave client ->
-        ( removeClient client lobby
-        , pure ()
-        )
-
-      LobbyRoomMake roomName playerName roomOwner ->
-        let
-          player = Player.new playerName roomOwner
-          room = Room.new roomName 4 player
-        in
-          ( addRoom room lobby
-          , pure ()
-          )
+getRoomView :: Text -> Lobby -> Maybe RoomView
+getRoomView roomName = Map.lookup roomName . lobbyRoomViews
 
 
 --------------------------------------------------------------------------------
-addRoom :: Room -> Lobby -> Lobby
-addRoom room lobby@Lobby { lobbyRoomViews } =
+removeRoomView :: Room -> Lobby -> Lobby
+removeRoomView Room { roomName } lobby@Lobby { lobbyRoomViews } =
+  lobby
+    { lobbyRoomViews =
+        Map.delete roomName lobbyRoomViews
+    }
+
+
+--------------------------------------------------------------------------------
+updateRoomView :: Room -> Lobby -> Lobby
+updateRoomView = addRoomView
+
+
+--------------------------------------------------------------------------------
+addRoomView :: Room -> Lobby -> Lobby
+addRoomView room lobby@Lobby { lobbyRoomViews } =
   lobby
     { lobbyRoomViews =
         Map.insert roomViewName roomView lobbyRoomViews
@@ -88,8 +85,8 @@ removeClient Client { clientId } lobby@Lobby { lobbyClientQueues } =
 
 --------------------------------------------------------------------------------
 addClient :: Client -> Lobby -> Lobby
-addClient Client { clientChannel, clientId } lobby@Lobby { lobbyClientQueues } =
+addClient Client { clientQueue, clientId } lobby@Lobby { lobbyClientQueues } =
   lobby
     { lobbyClientQueues =
-        Map.insert clientId clientChannel lobbyClientQueues
+        Map.insert clientId clientQueue lobbyClientQueues
     }

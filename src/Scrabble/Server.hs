@@ -117,7 +117,7 @@ acceptPendingClient clientId clientConn server@Server { serverPendingClients, se
   )
   where
     client :: Client
-    client = Client.new clientConn clientId
+    client = Client.new clientConn clientId undefined
 
 
 --------------------------------------------------------------------------------
