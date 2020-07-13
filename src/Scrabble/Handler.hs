@@ -1,24 +1,22 @@
 module Scrabble.Handler
-  ( processQueue
+  ( clientHandler
+  , lobbyHandler
+  , processQueue
+  , roomHandler
   ) where
 
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent.STM   (STM, TBQueue)
-import           TextShow                 (FromStringShow (..), TextShow (..))
+import           Data.Text                (Text)
 import           System.Exit              (exitSuccess)
 
-import           Scrabble.Client          (Client (..), ClientEvent (..))
-import           Scrabble.Lobby           (Lobby (..), LobbyEvent (..))
-import           Scrabble.Player          (Player (..))
-import           Scrabble.Room            (Room (..), RoomView (..),
-                                           RoomEvent (..))
+import           Scrabble.Message         (Message (..))
+import           Scrabble.Types
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM   as STM
-import qualified Data.Map                 as Map
 
-import qualified Scrabble.Client          as Client
 import qualified Scrabble.Lobby           as Lobby
 import qualified Scrabble.Player          as Player
 import qualified Scrabble.Room            as Room
@@ -30,282 +28,273 @@ type Handler state event =
 
 
 --------------------------------------------------------------------------------
-data Error
-  = ClientNotInRoom
-  | RoomCapacityInvalid
-  | RoomAlreadyExists
-  | RoomDoesNotExist
-  | RoomIsFull
-  | RoomInGame
-  | RoomHasPlayer
-  deriving Show
+type HandlerInternal state event =
+  state -> event -> ( state, IO () )
 
 
 --------------------------------------------------------------------------------
-instance TextShow Error where
-  showbPrec p = showbPrec p . FromStringShow
-
-
---------------------------------------------------------------------------------
-class Emit receiver emission where
-  emitEvent :: receiver -> emission -> STM ()
-
-  emitEventIO :: receiver -> emission -> IO ()
-  emitEventIO receiver =
-    STM.atomically . emitEvent receiver
-
-
---------------------------------------------------------------------------------
-instance Emit Lobby LobbyEvent where
-  emitEvent Lobby { lobbyQueue } =
-    STM.writeTBQueue lobbyQueue
-
-
---------------------------------------------------------------------------------
-instance Emit Room RoomEvent where
-  emitEvent Room { roomQueue } =
-    STM.writeTBQueue roomQueue
-
-
---------------------------------------------------------------------------------
-instance Emit RoomView RoomEvent where
-  emitEvent RoomView { roomViewQueue } =
-    STM.writeTBQueue roomViewQueue
-
-
---------------------------------------------------------------------------------
-instance Emit Client ClientEvent where
-  emitEvent Client { clientQueue } =
-    STM.writeTBQueue clientQueue
-
-
---------------------------------------------------------------------------------
-instance Emit (TBQueue a) a where
-  emitEvent = STM.writeTBQueue
+type HandlerExternal state event error =
+  state -> Client -> event -> Either error ( state, IO () )
 
 
 --------------------------------------------------------------------------------
 lobbyHandler :: Handler Lobby LobbyEvent
-lobbyHandler lobby@Lobby { lobbyQueue } = \case
-  LobbyClientJoin client ->
-    ( Lobby.addClient client lobby
-    , tellClientIO client ("room list placeholder" :: String)
-    )
+lobbyHandler =
+  createHandler handlerInternal handlerExternal
+  where
+    handlerInternal :: HandlerInternal Lobby LobbyEventInternal
+    handlerInternal lobby@Lobby { lobbyQueue } = \case
+      LobbyClientJoin client ->
+        let
+          roomViews = Lobby.listRoomViews lobby
+        in
+          ( Lobby.addClient client lobby
+          , toClient client $ RoomListOutbound roomViews
+          )
 
-  LobbyClientLeave client ->
-    ( Lobby.removeClient client lobby
-    , noAction
-    )
+      LobbyClientLeave client ->
+        ( Lobby.removeClient client lobby
+        , noAction
+        )
 
-  LobbyRoomMake roomName roomCapacity playerName client ->
-    ( lobby
-    , case Lobby.getRoomView roomName lobby of
-        Nothing ->
-          if roomCapacity > 0 && roomCapacity <= Room.maxCapacity then
-            let
-              roomOwner = Player.new playerName client
-              toRoom = Room.new roomName roomCapacity roomOwner
-            in
-              STM.atomically
-                $ STM.writeTBQueue lobbyQueue . LobbyRoomRun . toRoom
-                =<< STM.newTBQueue 256 -- todo
-          else
-            tellClientErrorIO client RoomCapacityInvalid
+      LobbyRoomRun room@Room { roomOwner } ownerName roomQueue ->
+        let
+          handler =
+            roomHandler lobbyQueue
 
-        _ ->
-          tellClientErrorIO client RoomAlreadyExists
-    )
+          runRoom =
+            processQueue handler roomQueue room
 
-  LobbyRoomRun room@Room { roomOwner, roomQueue } ->
-    let
-      Player { playerName, playerClient } =
-        roomOwner
+          tellRoom =
+            emitEventIO roomQueue $ RoomOwnerJoin roomOwner ownerName
+        in
+          ( Lobby.addRoom roomQueue room lobby
+          , Async.async runRoom >> tellRoom
+          )
 
-      handler =
-        roomHandler lobby
+      LobbyRoomUpdate room ->
+        let
+          roomView = Room.toView room
+        in
+          ( Lobby.updateRoomView roomView lobby
+          , broadcastLobby lobby $ RoomUpdateOutbound roomView
+          )
 
-      runRoom =
-        processQueue handler roomQueue room
+      LobbyRoomRemove room@Room { roomName } ->
+        ( Lobby.removeRoom room lobby
+        , broadcastLobby lobby $ RoomRemoveOutbound roomName
+        )
 
-      tellRoom =
-        emitEventIO room $ RoomPlayerJoin playerName playerClient
-    in
-      ( Lobby.addRoomView room lobby
-      , Async.async runRoom >> tellRoom
-      )
+    handlerExternal :: HandlerExternal Lobby LobbyEventExternal Error
+    handlerExternal lobby@Lobby { lobbyQueue } client = \case
+      LobbyRoomMake (RM { rmRoomCapacity = capacity, rmPlayerName = playerName, rmRoomName = roomName }) ->
+        case Lobby.getRoom roomName lobby of
+          Nothing ->
+            if capacity > 0 && capacity <= Room.maxCapacity then
+              let
+                roomOwner = Player.new playerName
+                room = Room.new roomName capacity roomOwner
+              in
+                Right ( lobby
+                      , STM.atomically
+                          $ emitEvent lobbyQueue . LobbyRoomRun room playerName
+                          =<< STM.newTBQueue 256 -- todo
+                      )
+            else
+              Left RoomCapacityInvalid
 
-  LobbyRoomJoin roomName playerName client ->
-    ( lobby
-    , case Lobby.getRoomView roomName lobby of
-        Just roomView ->
-          emitEventIO roomView $ RoomPlayerJoin playerName client
+          _ ->
+            Left RoomAlreadyExists
 
-        _ ->
-          tellClientErrorIO client RoomDoesNotExist
-    )
+      LobbyRoomJoin (roomJoin@RJ { rjRoomName = roomName }) ->
+        case Lobby.getRoom roomName lobby of
+          Just ( _, roomQueue ) ->
+            Right ( lobby
+                  , passEventIO roomQueue client $ RoomPlayerJoin roomJoin
+                  )
 
-  LobbyRoomUpdate room ->
-    ( Lobby.updateRoomView room lobby
-    , broadcastLobbyIO lobby ("room update placeholder" :: String)
-    )
-
-  LobbyRoomRemove room ->
-    ( Lobby.removeRoomView room lobby
-    , broadcastLobbyIO lobby ("room remove placeholder" :: String)
-    )
+          _ ->
+            Left RoomDoesNotExist
 
 
 --------------------------------------------------------------------------------
-roomHandler :: Lobby -> Handler Room RoomEvent
-roomHandler lobby room = \case
-  RoomPlayerJoin playerName client ->
-    if | Room.inGame room ->
-          ( room
-          , tellClientErrorIO client RoomInGame
-          )
+roomHandler :: LobbyQueue -> Handler Room RoomEvent
+roomHandler lobbyQueue =
+  createHandler handlerInternal handlerExternal
+  where
+    handlerInternal :: HandlerInternal Room RoomEventInternal
+    handlerInternal room = \case
+      RoomOwnerJoin client ownerName ->
+        addPlayer client ownerName room
 
-       | Room.isFull room ->
-          ( room
-          , tellClientErrorIO client RoomIsFull
-          )
+      RoomPlayerLeave client playerName ->
+        removePlayer client playerName room
 
-       | Room.hasPlayerTag playerName room ->
-          ( room
-          , tellClientErrorIO client RoomHasPlayer
-          )
+    handlerExternal :: HandlerExternal Room RoomEventExternal Error
+    handlerExternal room client = \case
+      RoomPlayerJoin (RJ { rjPlayerName = playerName }) ->
+        if | Room.inGame room ->
+              Left RoomInGame
 
-       | otherwise ->
-          let
-            newPlayer = Player.new playerName client
-            newRoom = Room.addPlayer newPlayer room
-          in
-            ( newRoom
-            , STM.atomically $ do
-                emitEvent lobby (LobbyClientLeave client)
-                emitEvent lobby (LobbyRoomUpdate newRoom) -- todo: more events
-            )
+           | Room.isFull room ->
+              Left RoomIsFull
 
-  RoomPlayerLeave client ->
-    case Room.getPlayer client room of
-      Just player ->
-        let ( newState, lobbyEvent, roomAction ) =
-              case Room.removePlayer player room of
-                Just newRoom ->
-                  ( newRoom
-                  , LobbyRoomUpdate
-                  , broadcastRoomIO newRoom ("player left placeholder" :: String)
-                  )
+           | Room.hasPlayerName playerName room ->
+              Left RoomHasPlayer
 
-                _ ->
-                  ( room
-                  , LobbyRoomRemove
-                  , exitSuccess
-                  )
-        in
-          ( newState
-          , do
-              STM.atomically $ do
-                emitEvent lobby $ lobbyEvent newState
-                emitEvent lobby $ LobbyClientJoin client
-                tellClient client ("you left room placeholder" :: String)
-              roomAction -- try to place broadcast in atomic action ?
-          )
+           | otherwise ->
+              Right $ addPlayer client playerName room
 
-      _ ->
-        ( room
-        , tellClientErrorIO client ClientNotInRoom
+
+    addPlayer :: Client -> Text -> Room -> ( Room, IO () )
+    addPlayer client@Client { clientQueue } name room =
+      let
+        newRoom = Room.addPlayer client name room
+      in
+        ( newRoom
+        , STM.atomically $ do
+            emitEvent lobbyQueue $ LobbyClientLeave client
+            emitEvent lobbyQueue $ LobbyRoomUpdate newRoom
+            emitEvent clientQueue $ ClientRoomJoin newRoom
+        )
+
+    removePlayer :: Client -> Text -> Room -> ( Room, IO () )
+    removePlayer client@Client { clientQueue } name room =
+      let ( newState, lobbyEvent, roomAction ) =
+            case Room.removePlayer client room of
+              Just newRoom ->
+                ( newRoom
+                , LobbyRoomUpdate
+                , broadcastRoom newRoom $ PlayerLeaveOutbound name
+                )
+
+              _ ->
+                ( room
+                , LobbyRoomRemove
+                , exitSuccess
+                )
+      in
+        ( newState
+        , do
+            STM.atomically $ do
+              emitEvent lobbyQueue $ lobbyEvent newState
+              emitEvent lobbyQueue $ LobbyClientJoin client
+              emitEvent clientQueue ClientRoomLeave
+            roomAction
         )
 
 
 --------------------------------------------------------------------------------
-clientHandler :: Lobby -> Handler Client ClientEvent
-clientHandler lobby client = \case
-  ClientInbound _ ->
-    ( client
-    , noAction
-    )
+clientHandler :: LobbyQueue -> Handler ( Client, Maybe RoomHandle ) ClientEvent
+clientHandler lobbyQueue =
+  createHandler handlerInternal handlerExternal
+  where
+    handlerInternal :: HandlerInternal ( Client, Maybe RoomHandle ) ClientEventInternal
+    handlerInternal state@( client, maybeHandle ) = \case
+      ClientRoomJoin roomQueue ->
+        ( ( client, undefined {- Just roomQueue -} )
+        , toClient client $ RoomJoinOutbound roomQueue
+        )
 
-  ClientOutbound message ->
-    ( client
-    , Client.send client message
-    )
+      ClientRoomLeave ->
+        ( ( client, Nothing )
+        , toClient client RoomLeaveOutbound
+        )
 
-  ClientRoomJoin _ ->
-    ( client
-    , Client.send client "you joined room placeholder"
-    )
+      ClientDisconnect ->
+        ( state
+        , let
+            toEmit =
+              case maybeHandle of
+                Just RoomHandle { roomHandleQueue, roomHandlePlayerName } ->
+                  emitEventIO roomHandleQueue
+                  . flip RoomPlayerLeave
+                    roomHandlePlayerName
 
-  ClientRoomLeave ->
-    ( Client.leaveRoom client
-    , Client.send client "you left room placeholder"
-    )
+                _ ->
+                  emitEventIO lobbyQueue
+                  . LobbyClientLeave
+          in
+            toEmit client >> exitSuccess
+        )
 
-  ClientDisconnect ->
-    ( client
-    , let
-        toEmit =
-          case clientRoomQueue client of
-            Just roomQueue ->
-              emitEventIO roomQueue . RoomPlayerLeave
+    handlerExternal :: HandlerExternal ( Client, Maybe RoomHandle ) ClientEventExternal Error
+    handlerExternal state@( client, maybeHandle ) _ = \case
+      ClientMessageSend received ->
+        case received of
+          Left decodeError ->
+            Left $ MessageInvalid decodeError
 
-            _ ->
-              emitEventIO lobby . LobbyClientLeave
-      in
-        toEmit client >> exitSuccess
-    )
+          Right message ->
+            ( state, ) <$>
+              case maybeHandle of
+                Just RoomHandle { roomHandlePlayerName, roomHandleQueue } ->
+                  emitEventIO roomHandleQueue <$> whenInRoom client roomHandlePlayerName message
 
+                _ ->
+                  passEventIO lobbyQueue client <$> whenInLobby message
 
---------------------------------------------------------------------------------
-broadcastLobbyIO :: TextShow a => Lobby -> a -> IO ()
-broadcastLobbyIO lobby =
-  STM.atomically . broadcastLobby lobby
+    whenInLobby :: MessageInbound -> Either Error LobbyEventExternal
+    whenInLobby = \case
+      RoomMakeInbound roomMake ->
+        Right $ LobbyRoomMake roomMake
 
+      RoomJoinInbound roomJoin ->
+        Right $ LobbyRoomJoin roomJoin
 
---------------------------------------------------------------------------------
-broadcastLobby :: TextShow a => Lobby -> a -> STM ()
-broadcastLobby Lobby { lobbyClientQueues } =
-  broadcastQueues lobbyClientQueues . ClientOutbound . showt
+      _ ->
+        Left ClientNotInLobby
 
+    whenInRoom :: Client -> Text -> MessageInbound -> Either Error RoomEventInternal
+    whenInRoom client playerName = \case
+      RoomLeaveInbound ->
+        Right $ RoomPlayerLeave client playerName
 
---------------------------------------------------------------------------------
-broadcastRoomIO :: TextShow a => Room -> a -> IO ()
-broadcastRoomIO room =
-  STM.atomically . broadcastRoom room
-
-
---------------------------------------------------------------------------------
-broadcastRoom :: TextShow a => Room -> a -> STM ()
-broadcastRoom Room { roomPlayers } =
-  broadcastQueues (clientQueue <$> Map.keys roomPlayers) . ClientOutbound . showt
-
-
---------------------------------------------------------------------------------
-tellClientErrorIO :: Client -> Error -> IO ()
-tellClientErrorIO client =
-  STM.atomically . tellClientError client
-
-
---------------------------------------------------------------------------------
-tellClientError :: Client -> Error -> STM ()
-tellClientError = tellClient
+      _ ->
+        Left ClientNotInRoom
 
 
 --------------------------------------------------------------------------------
-tellClientIO :: TextShow a => Client -> a -> IO ()
-tellClientIO client =
-  STM.atomically . tellClient client
+createHandler
+  :: HandlerInternal state internal
+  -> HandlerExternal state external Error
+  -> Handler state (Event internal external)
+createHandler
+  handlerInternal
+  handlerExternal
+  state = \case
+    EventInternal event ->
+      handlerInternal state event
+
+    EventExternal client event ->
+      case handlerExternal state client event of
+        Right result ->
+          result
+
+        Left err ->
+          ( state
+          , toClient client $ ErrorOutbound err
+          )
 
 
 --------------------------------------------------------------------------------
-tellClient :: TextShow a => Client -> a -> STM ()
-tellClient client =
-  emitEvent client . ClientOutbound . showt
+passEventIO :: TBQueue (Event i e) -> Client -> e -> IO ()
+passEventIO queue client = STM.atomically . passEvent queue client
 
 
 --------------------------------------------------------------------------------
-broadcastQueues :: Foldable t => t (TBQueue a) -> a -> STM ()
-broadcastQueues queues event =
-  foldl (\ts q -> ts >> STM.writeTBQueue q event) (pure ()) queues
+passEvent :: TBQueue (Event i e) -> Client -> e -> STM ()
+passEvent queue client = STM.writeTBQueue queue . EventExternal client
+
+
+--------------------------------------------------------------------------------
+emitEventIO :: TBQueue (Event i e) -> i -> IO ()
+emitEventIO queue = STM.atomically . emitEvent queue
+
+
+--------------------------------------------------------------------------------
+emitEvent :: TBQueue (Event i e) -> i -> STM ()
+emitEvent queue = STM.writeTBQueue queue . EventInternal
 
 
 --------------------------------------------------------------------------------

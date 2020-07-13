@@ -1,18 +1,20 @@
 module Scrabble.Room
   ( Room (..)
-  , RoomEvent (..)
+  , RoomEventExternal (..)
+  , RoomEventInternal (..)
+  , RoomEvent
+  , RoomQueue
   , RoomView (..)
   , addPlayer
   , getClients
   , getPlayer
-  , hasPlayerTag
+  , hasPlayerName
   , inGame
   , isEmpty
   , isFull
   , isPlayerOwner
   , maxCapacity
   , new
-  , removeClient
   , removePlayer
   , switchTurn
   , toView
@@ -20,101 +22,19 @@ module Scrabble.Room
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM (TBQueue)
-import           Data.Aeson             (ToJSON, (.=))
-import           Data.Map.Strict        (Map)
-import           Data.Text              (Text)
+import           Data.Text       (Text)
 
-import           Scrabble.Client        (Client (..))
-import           Scrabble.Player        (Player (..))
+import           Scrabble.Client (Client (..))
+import           Scrabble.Player (Player (..))
+import           Scrabble.Types  (Room (..), RoomEventExternal (..),
+                                  RoomEventInternal (..), RoomEvent,
+                                  RoomQueue, RoomView (..))
 
-import qualified Data.Aeson             as JSON
-import qualified Data.List              as List
-import qualified Data.Map.Strict        as Map
-import qualified Data.Maybe             as Maybe
+import qualified Data.List       as List
+import qualified Data.Map.Strict as Map
+import qualified Data.Maybe      as Maybe
 
-
---------------------------------------------------------------------------------
-data Room = Room
-  { roomCapacity :: Int
-  , roomName     :: Text
-  , roomOwner    :: Player
-  , roomPlayers  :: Map Client Player
-  , roomPlaying  :: Maybe Player
-  , roomQueue    :: TBQueue RoomEvent
-  }
-
-
---------------------------------------------------------------------------------
-data RoomView = RoomView
-  { roomViewCapacity  :: Int
-  , roomViewInGame    :: Bool
-  , roomViewName      :: Text
-  , roomViewOccupancy :: Int
-  , roomViewQueue     :: TBQueue RoomEvent
-  }
-
-
---------------------------------------------------------------------------------
-data RoomEvent
-  = RoomPlayerJoin Text Client
-  | RoomPlayerLeave Client
-
-
---------------------------------------------------------------------------------
-instance ToJSON Room where
-  toJSON Room
-    { roomCapacity
-    , roomName
-    , roomOwner
-    , roomPlayers
-    , roomPlaying
-    } = JSON.object
-          [ "roomCapacity" .= roomCapacity
-          , "roomName"     .= roomName
-          , "roomOwner"    .= roomOwner
-          , "roomPlayers"  .= Map.elems roomPlayers
-          , "roomPlaying"  .= roomPlaying
-          ]
-
-  toEncoding Room
-    { roomCapacity
-    , roomName
-    , roomOwner
-    , roomPlayers
-    , roomPlaying
-    } = JSON.pairs
-          $  "roomCapacity" .= roomCapacity
-          <> "roomName"     .= roomName
-          <> "roomOwner"    .= roomOwner
-          <> "roomPlayers"  .= Map.elems roomPlayers
-          <> "roomPlaying"  .= roomPlaying
-
-
---------------------------------------------------------------------------------
-instance ToJSON RoomView where
-  toJSON RoomView
-    { roomViewCapacity
-    , roomViewInGame
-    , roomViewName
-    , roomViewOccupancy
-    } = JSON.object
-          [ "roomViewCapacity"  .= roomViewCapacity
-          , "roomViewInGame"    .= roomViewInGame
-          , "roomViewName"      .= roomViewName
-          , "roomViewOccupancy" .= roomViewOccupancy
-          ]
-
-  toEncoding RoomView
-    { roomViewCapacity
-    , roomViewInGame
-    , roomViewName
-    , roomViewOccupancy
-    } = JSON.pairs
-          $ "roomViewCapacity"   .= roomViewCapacity
-          <> "roomViewInGame"    .= roomViewInGame
-          <> "roomViewName"      .= roomViewName
-          <> "roomViewOccupancy" .= roomViewOccupancy
+import qualified Scrabble.Player as Player
 
 
 --------------------------------------------------------------------------------
@@ -123,25 +43,23 @@ maxCapacity = 4
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Player -> TBQueue RoomEvent -> Room
-new roomName roomCapacity roomOwner roomQueue = Room
-  { roomCapacity
-  , roomName
-  , roomOwner
+new :: Text -> Int -> Player -> Room
+new name capacity owner = Room
+  { roomCapacity = capacity
+  , roomName     = name
+  , roomOwner    = owner
   , roomPlayers  = Map.empty
   , roomPlaying  = Nothing
-  , roomQueue
   }
 
 
 --------------------------------------------------------------------------------
 toView :: Room -> RoomView
-toView room@Room { roomCapacity, roomName, roomQueue } = RoomView
+toView room@Room { roomCapacity, roomName } = RoomView
   { roomViewCapacity  = roomCapacity
   , roomViewInGame    = inGame room
   , roomViewName      = roomName
   , roomViewOccupancy = occupancy room
-  , roomViewQueue     = roomQueue
   }
 
 
@@ -178,20 +96,18 @@ getClients = Map.keys . roomPlayers
 
 
 --------------------------------------------------------------------------------
-hasPlayerTag :: Text -> Room -> Bool
-hasPlayerTag tag =
-  List.any ((tag ==) . playerName) . Map.elems . roomPlayers
+hasPlayerName :: Text -> Room -> Bool
+hasPlayerName name =
+  List.any (Player.hasName name) . Map.elems . roomPlayers
 
 
 --------------------------------------------------------------------------------
-addPlayer :: Player -> Room -> Room
-addPlayer player@Player { playerClient } room@Room { roomPlayers } =
-  room { roomPlayers = Map.insert playerClient player roomPlayers }
-
-
---------------------------------------------------------------------------------
-removePlayer :: Player -> Room -> Maybe Room
-removePlayer = removeClient . playerClient
+addPlayer :: Client -> Text -> Room -> Room
+addPlayer client name room@Room { roomPlayers } =
+  room { roomPlayers = Map.insert client player roomPlayers }
+  where
+    player :: Player
+    player = Player.new name
 
 
 --------------------------------------------------------------------------------
@@ -206,8 +122,8 @@ isPlayerOwner player = (player ==) . roomOwner
 
 
 --------------------------------------------------------------------------------
-removeClient :: Client -> Room -> Maybe Room
-removeClient client room@Room { roomPlayers } =
+removePlayer :: Client -> Room -> Maybe Room
+removePlayer client room@Room { roomPlayers } =
   if null players then
     Nothing
   else

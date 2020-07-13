@@ -1,73 +1,65 @@
 module Scrabble.Lobby
   ( Lobby (..)
-  , LobbyEvent (..)
+  , LobbyEventExternal (..)
+  , LobbyEventInternal (..)
+  , LobbyEvent
+  , LobbyQueue
   , addClient
-  , addRoomView
-  , getRoomView
+  , addRoom
+  , getRoom
+  , listRoomViews
   , removeClient
-  , removeRoomView
+  , removeRoom
   , updateRoomView
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM (TBQueue)
-import           Data.Map               (Map)
-import           Data.Text              (Text)
+import           Data.Text       (Text)
 
-import           Scrabble.Client        (Client (..), ClientEvent)
-import           Scrabble.Room          (Room (..), RoomView (..))
+import           Scrabble.Client (Client (..))
+import           Scrabble.Room   (Room (..), RoomQueue, RoomView (..))
+import           Scrabble.Types  (Lobby (..), LobbyEventExternal (..),
+                                  LobbyEventInternal (..), LobbyEvent,
+                                  LobbyQueue)
 
-import qualified Data.Map               as Map
+import qualified Data.Map        as Map
 
-import qualified Scrabble.Room          as Room
+import qualified Scrabble.Room   as Room
 
 
 --------------------------------------------------------------------------------
-data Lobby = Lobby
-  { lobbyClientQueues :: Map Text (TBQueue ClientEvent)
-  , lobbyQueue        :: TBQueue LobbyEvent
-  , lobbyRoomViews    :: Map Text RoomView
+listRoomViews :: Lobby -> [ RoomView ]
+listRoomViews = fmap fst . Map.elems . lobbyRooms
+
+
+--------------------------------------------------------------------------------
+getRoom :: Text -> Lobby -> Maybe ( RoomView, RoomQueue )
+getRoom name = Map.lookup name . lobbyRooms
+
+
+--------------------------------------------------------------------------------
+removeRoom :: Room -> Lobby -> Lobby
+removeRoom Room { roomName } lobby@Lobby { lobbyRooms } = lobby
+  { lobbyRooms =
+      Map.delete roomName lobbyRooms
   }
 
 
 --------------------------------------------------------------------------------
-data LobbyEvent
-  = LobbyClientJoin Client
-  | LobbyClientLeave Client
-  | LobbyRoomMake Text Int Text Client
-  | LobbyRoomRun Room
-  | LobbyRoomJoin Text Text Client
-  | LobbyRoomUpdate Room
-  | LobbyRoomRemove Room
+updateRoomView :: RoomView -> Lobby -> Lobby
+updateRoomView roomView@RoomView { roomViewName } lobby@Lobby { lobbyRooms } = lobby
+  { lobbyRooms =
+      Map.adjust (\( _, rq ) -> ( roomView, rq )) roomViewName lobbyRooms
+  }
 
 
 --------------------------------------------------------------------------------
-getRoomView :: Text -> Lobby -> Maybe RoomView
-getRoomView roomName = Map.lookup roomName . lobbyRoomViews
-
-
---------------------------------------------------------------------------------
-removeRoomView :: Room -> Lobby -> Lobby
-removeRoomView Room { roomName } lobby@Lobby { lobbyRoomViews } =
-  lobby
-    { lobbyRoomViews =
-        Map.delete roomName lobbyRoomViews
-    }
-
-
---------------------------------------------------------------------------------
-updateRoomView :: Room -> Lobby -> Lobby
-updateRoomView = addRoomView
-
-
---------------------------------------------------------------------------------
-addRoomView :: Room -> Lobby -> Lobby
-addRoomView room lobby@Lobby { lobbyRoomViews } =
-  lobby
-    { lobbyRoomViews =
-        Map.insert roomViewName roomView lobbyRoomViews
-    }
+addRoom :: RoomQueue -> Room -> Lobby -> Lobby
+addRoom roomQueue room lobby@Lobby { lobbyRooms } = lobby
+  { lobbyRooms =
+      Map.insert roomViewName ( roomView, roomQueue ) lobbyRooms
+  }
   where
     roomView :: RoomView
     roomView@RoomView { roomViewName } =
@@ -76,17 +68,15 @@ addRoomView room lobby@Lobby { lobbyRoomViews } =
 
 --------------------------------------------------------------------------------
 removeClient :: Client -> Lobby -> Lobby
-removeClient Client { clientId } lobby@Lobby { lobbyClientQueues } =
-  lobby
-    { lobbyClientQueues =
-        Map.delete clientId lobbyClientQueues
-    }
+removeClient Client { clientId } lobby@Lobby { lobbyClients } = lobby
+  { lobbyClients =
+      Map.delete clientId lobbyClients
+  }
 
 
 --------------------------------------------------------------------------------
 addClient :: Client -> Lobby -> Lobby
-addClient Client { clientQueue, clientId } lobby@Lobby { lobbyClientQueues } =
-  lobby
-    { lobbyClientQueues =
-        Map.insert clientId clientQueue lobbyClientQueues
-    }
+addClient client@Client { clientId } lobby@Lobby { lobbyClients } = lobby
+  { lobbyClients =
+      Map.insert clientId client lobbyClients
+  }

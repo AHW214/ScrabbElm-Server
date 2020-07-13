@@ -70,8 +70,8 @@ data Client = Client
 
 --------------------------------------------------------------------------------
 data Message
-  = LobbyMessage LobbyEvent
-  | RoomMessage RoomEvent
+  = LobbyEvent LobbyEvent
+  | RoomEvent RoomEvent
 
 
 --------------------------------------------------------------------------------
@@ -362,10 +362,10 @@ clientEventHandler
 
       ClientInbound message -> const (pure Skip) $
         case ( message, clientRoomChannel ) of
-          ( LobbyMessage lobbyEvent, Nothing ) ->
+          ( LobbyEvent lobbyEvent, Nothing ) ->
             tellLobbyIO lobbyEvent
 
-          ( RoomMessage roomEvent, Just roomChannel ) ->
+          ( RoomEvent roomEvent, Just roomChannel ) ->
             tellChannelIO roomChannel roomEvent
 
           _ ->

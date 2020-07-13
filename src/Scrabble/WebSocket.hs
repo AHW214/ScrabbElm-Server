@@ -15,7 +15,7 @@ import           TextShow                (TextShow (..), FromStringShow (..))
 
 import           Scrabble.Client         (Client (..))
 import           Scrabble.Log            (Log (..))
-import           Scrabble.Message        (Message (..), ClientMessage (..),
+import           Scrabble.Message        (Message (..), ClientEvent (..),
                                           ServerMessage (..))
 import           Scrabble.Player         (Player (..))
 import           Scrabble.Room           (Room (..))
@@ -102,7 +102,7 @@ app mServer pending = do
                 , action >> logInfo s' ("Client " <> clientId <> " disconnected")
                 )
 
-          receiveMessage :: Message m => m (Either Error ClientMessage)
+          receiveMessage :: Message m => m (Either Error ClientEvent)
           receiveMessage =
             left MessageInvalid <$> fromClient client
 
@@ -141,7 +141,7 @@ handleMessage
   :: forall m. (Log m, Message m)
   => Client
   -> Server
-  -> ClientMessage
+  -> ClientEvent
   -> Either Error ( Server, m () )
 handleMessage client server message =
   case message of
