@@ -13,8 +13,8 @@ import           TextShow               (TextShow (..))
 
 import           Scrabble.Types         (Context (..), Log (..), LogLevel (..))
 
-import qualified Data.Text.IO           as Text
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Text.IO           as Text
 
 
 --------------------------------------------------------------------------------
