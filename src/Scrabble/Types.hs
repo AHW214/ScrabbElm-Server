@@ -199,7 +199,7 @@ data RoomEventInternal
 
 
 --------------------------------------------------------------------------------
-data RoomEventExternal
+newtype RoomEventExternal
   = RoomPlayerJoin RoomJoin
 
 
@@ -215,14 +215,15 @@ type ClientEvent =
 
 --------------------------------------------------------------------------------
 data ClientEventInternal
-  = ClientRoomJoin Room
+  = ClientMessageSend MessageOutbound
+  | ClientRoomJoin Room
   | ClientRoomLeave
   | ClientDisconnect
 
 
 --------------------------------------------------------------------------------
-data ClientEventExternal
-  = ClientMessageSend (Either Text MessageInbound)
+newtype ClientEventExternal
+  = ClientMessageReceive (Either Text MessageInbound)
 
 
 --------------------------------------------------------------------------------

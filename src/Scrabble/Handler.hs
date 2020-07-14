@@ -7,7 +7,7 @@ module Scrabble.Handler
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM   (STM, TBQueue)
+import           Control.Concurrent.STM   (TBQueue)
 import           Data.Text                (Text)
 import           System.Exit              (exitSuccess)
 
@@ -16,9 +16,11 @@ import           Scrabble.Types
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM   as STM
+import qualified Data.Aeson               as JSON
+import qualified Network.WebSockets       as WS
 
+import qualified Scrabble.Event           as Event
 import qualified Scrabble.Lobby           as Lobby
-import qualified Scrabble.Player          as Player
 import qualified Scrabble.Room            as Room
 
 
@@ -38,8 +40,8 @@ type HandlerExternal state event error =
 
 
 --------------------------------------------------------------------------------
-lobbyHandler :: Handler Lobby LobbyEvent
-lobbyHandler =
+lobbyHandler :: Context -> Handler Lobby LobbyEvent
+lobbyHandler context = -- do something with context [e.g. replace lobbyQueue param]
   createHandler handlerInternal handlerExternal
   where
     handlerInternal :: HandlerInternal Lobby LobbyEventInternal
@@ -66,7 +68,7 @@ lobbyHandler =
             processQueue handler roomQueue room
 
           tellRoom =
-            emitEventIO roomQueue $ RoomOwnerJoin roomOwner ownerName
+            Event.emitIO roomQueue $ RoomOwnerJoin roomOwner ownerName
         in
           ( Lobby.addRoom roomQueue room lobby
           , Async.async runRoom >> tellRoom
@@ -92,12 +94,11 @@ lobbyHandler =
           Nothing ->
             if capacity > 0 && capacity <= Room.maxCapacity then
               let
-                roomOwner = Player.new playerName
-                room = Room.new roomName capacity roomOwner
+                room = Room.new roomName capacity client
               in
                 Right ( lobby
                       , STM.atomically
-                          $ emitEvent lobbyQueue . LobbyRoomRun room playerName
+                          $ Event.emit lobbyQueue . LobbyRoomRun room playerName
                           =<< STM.newTBQueue 256 -- todo
                       )
             else
@@ -110,7 +111,7 @@ lobbyHandler =
         case Lobby.getRoom roomName lobby of
           Just ( _, roomQueue ) ->
             Right ( lobby
-                  , passEventIO roomQueue client $ RoomPlayerJoin roomJoin
+                  , Event.passIO roomQueue client $ RoomPlayerJoin roomJoin
                   )
 
           _ ->
@@ -153,9 +154,9 @@ roomHandler lobbyQueue =
       in
         ( newRoom
         , STM.atomically $ do
-            emitEvent lobbyQueue $ LobbyClientLeave client
-            emitEvent lobbyQueue $ LobbyRoomUpdate newRoom
-            emitEvent clientQueue $ ClientRoomJoin newRoom
+            Event.emit lobbyQueue $ LobbyClientLeave client
+            Event.emit lobbyQueue $ LobbyRoomUpdate newRoom
+            Event.emit clientQueue $ ClientRoomJoin newRoom
         )
 
     removePlayer :: Client -> Text -> Room -> ( Room, IO () )
@@ -177,9 +178,9 @@ roomHandler lobbyQueue =
         ( newState
         , do
             STM.atomically $ do
-              emitEvent lobbyQueue $ lobbyEvent newState
-              emitEvent lobbyQueue $ LobbyClientJoin client
-              emitEvent clientQueue ClientRoomLeave
+              Event.emit lobbyQueue $ lobbyEvent newState
+              Event.emit lobbyQueue $ LobbyClientJoin client
+              Event.emit clientQueue ClientRoomLeave
             roomAction
         )
 
@@ -190,7 +191,12 @@ clientHandler lobbyQueue =
   createHandler handlerInternal handlerExternal
   where
     handlerInternal :: HandlerInternal ( Client, Maybe RoomHandle ) ClientEventInternal
-    handlerInternal state@( client, maybeHandle ) = \case
+    handlerInternal state@( client@Client { clientConnection }, maybeHandle ) = \case
+      ClientMessageSend message ->
+        ( state
+        , WS.sendTextData clientConnection $ JSON.encode message
+        )
+
       ClientRoomJoin roomQueue ->
         ( ( client, undefined {- Just roomQueue -} )
         , toClient client $ RoomJoinOutbound roomQueue
@@ -207,12 +213,12 @@ clientHandler lobbyQueue =
             toEmit =
               case maybeHandle of
                 Just RoomHandle { roomHandleQueue, roomHandlePlayerName } ->
-                  emitEventIO roomHandleQueue
+                  Event.emitIO roomHandleQueue
                   . flip RoomPlayerLeave
                     roomHandlePlayerName
 
                 _ ->
-                  emitEventIO lobbyQueue
+                  Event.emitIO lobbyQueue
                   . LobbyClientLeave
           in
             toEmit client >> exitSuccess
@@ -220,7 +226,7 @@ clientHandler lobbyQueue =
 
     handlerExternal :: HandlerExternal ( Client, Maybe RoomHandle ) ClientEventExternal Error
     handlerExternal state@( client, maybeHandle ) _ = \case
-      ClientMessageSend received ->
+      ClientMessageReceive received ->
         case received of
           Left decodeError ->
             Left $ MessageInvalid decodeError
@@ -229,10 +235,10 @@ clientHandler lobbyQueue =
             ( state, ) <$>
               case maybeHandle of
                 Just RoomHandle { roomHandlePlayerName, roomHandleQueue } ->
-                  emitEventIO roomHandleQueue <$> whenInRoom client roomHandlePlayerName message
+                  Event.emitIO roomHandleQueue <$> whenInRoom client roomHandlePlayerName message
 
                 _ ->
-                  passEventIO lobbyQueue client <$> whenInLobby message
+                  Event.passIO lobbyQueue client <$> whenInLobby message
 
     whenInLobby :: MessageInbound -> Either Error LobbyEventExternal
     whenInLobby = \case
@@ -275,26 +281,6 @@ createHandler
           ( state
           , toClient client $ ErrorOutbound err
           )
-
-
---------------------------------------------------------------------------------
-passEventIO :: TBQueue (Event i e) -> Client -> e -> IO ()
-passEventIO queue client = STM.atomically . passEvent queue client
-
-
---------------------------------------------------------------------------------
-passEvent :: TBQueue (Event i e) -> Client -> e -> STM ()
-passEvent queue client = STM.writeTBQueue queue . EventExternal client
-
-
---------------------------------------------------------------------------------
-emitEventIO :: TBQueue (Event i e) -> i -> IO ()
-emitEventIO queue = STM.atomically . emitEvent queue
-
-
---------------------------------------------------------------------------------
-emitEvent :: TBQueue (Event i e) -> i -> STM ()
-emitEvent queue = STM.writeTBQueue queue . EventInternal
 
 
 --------------------------------------------------------------------------------

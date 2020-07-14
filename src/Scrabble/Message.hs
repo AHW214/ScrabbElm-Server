@@ -8,13 +8,15 @@ import           Control.Arrow      (left)
 import           Data.Foldable      (traverse_)
 import           Data.Text          (Text)
 
-import           Scrabble.Types     (Client (..), Lobby (..), MessageInbound,
+import           Scrabble.Types     (Client (..), ClientEventInternal (..),
+                                     Lobby (..), MessageInbound,
                                      MessageOutbound, Room)
 
 import qualified Data.Aeson         as JSON
 import qualified Data.Text          as Text
 import qualified Network.WebSockets as WS
 
+import qualified Scrabble.Event     as Event
 import qualified Scrabble.Room      as Room
 
 
@@ -44,8 +46,8 @@ instance Message IO where
     . WS.receiveData
     . clientConnection
 
-  toClient Client { clientConnection } =
-    WS.sendTextData clientConnection . JSON.encode
+  toClient Client { clientQueue } =
+    Event.emitIO clientQueue . ClientMessageSend
 
   toClients clients message =
-    traverse_ (flip toClient message) clients
+    traverse_ (flip toClient message) clients -- perform all as STM atomically ?
