@@ -10,11 +10,52 @@ module Scrabble.Types where
 --------------------------------------------------------------------------------
 import           Control.Concurrent.STM (TBQueue)
 import           Data.Aeson             (FromJSON, ToJSON (..), ToJSONKey)
-import           Data.ByteString.Lazy   (ByteString)
 import           Data.Map               (Map)
 import           Data.Text              (Text)
 import           GHC.Generics           (Generic)
 import           Network.WebSockets     (Connection)
+import           Text.Read              (readMaybe)
+
+import qualified Data.Aeson             as JSON
+import qualified Data.Text              as Text
+
+
+--------------------------------------------------------------------------------
+------------------------------------ server ------------------------------------
+--------------------------------------------------------------------------------
+data Context = Context
+  { contextLobbyQueue  :: LobbyQueue
+  , contextLoggerQueue :: LoggerQueue
+  , contextLogLevel    :: LogLevel
+  }
+
+
+--------------------------------------------------------------------------------
+data Log =
+  Log LogLevel Text
+
+
+--------------------------------------------------------------------------------
+data LogLevel
+  = LogError
+  | LogWarning
+  | LogInfo
+  | LogDebug
+  deriving (Eq, Ord, Read)
+
+
+--------------------------------------------------------------------------------
+instance FromJSON LogLevel where
+  parseJSON = JSON.withText "LogLevel" $ \text ->
+    case fromText text of
+      Just logLevel ->
+        pure logLevel
+
+      _ ->
+        fail "invalid LogLevel"
+    where
+      fromText :: Text -> Maybe LogLevel
+      fromText = readMaybe . Text.unpack . Text.toTitle
 
 
 --------------------------------------------------------------------------------
@@ -111,6 +152,11 @@ instance Eq Client where
 
 --------------------------------------------------------------------------------
 ------------------------------------ events ------------------------------------
+--------------------------------------------------------------------------------
+type LoggerQueue =
+  TBQueue Log
+
+
 --------------------------------------------------------------------------------
 type LobbyQueue =
   TBQueue LobbyEvent

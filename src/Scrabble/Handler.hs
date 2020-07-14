@@ -315,4 +315,6 @@ processQueue handler queue = loop
     loop state = do
       event <- STM.atomically $ STM.readTBQueue queue
       let ( newState, action ) = handler state event
-      action >> loop newState
+
+      action
+      loop newState

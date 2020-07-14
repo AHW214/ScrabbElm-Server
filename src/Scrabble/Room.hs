@@ -9,10 +9,10 @@ module Scrabble.Room
   , getClients
   , getPlayer
   , hasPlayerName
+  , isClientOwner
   , inGame
   , isEmpty
   , isFull
-  , isPlayerOwner
   , maxCapacity
   , new
   , removePlayer
@@ -43,7 +43,7 @@ maxCapacity = 4
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Player -> Room
+new :: Text -> Int -> Client -> Room
 new name capacity owner = Room
   { roomCapacity = capacity
   , roomName     = name
@@ -117,8 +117,8 @@ switchTurn player room =
 
 
 --------------------------------------------------------------------------------
-isPlayerOwner :: Player -> Room -> Bool
-isPlayerOwner player = (player ==) . roomOwner
+isClientOwner :: Client -> Room -> Bool
+isClientOwner player = (player ==) . roomOwner
 
 
 --------------------------------------------------------------------------------

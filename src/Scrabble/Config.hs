@@ -15,7 +15,7 @@ import           Data.Time.Clock          (NominalDiffTime)
 import           Network.Wai.Handler.Warp (Port)
 
 import           Scrabble.Authentication  (Secret)
-import           Scrabble.Log.Level       (LogLevel (..))
+import           Scrabble.Types           (LogLevel (..))
 
 import qualified Data.Aeson               as JSON
 import qualified Data.Text                as Text

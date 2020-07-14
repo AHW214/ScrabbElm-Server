@@ -30,9 +30,9 @@ import           TextShow                (showt)
 import           Scrabble.Authentication (Secret)
 import           Scrabble.Client         (Client (..))
 import           Scrabble.Config         (Config (..))
-import           Scrabble.Log.Level      (LogLevel (..))
 import           Scrabble.Player         (Player)
 import           Scrabble.Room           (Room (..), RoomView)
+import           Scrabble.Types          (LogLevel (..))
 
 import qualified Data.Map.Strict         as Map
 
