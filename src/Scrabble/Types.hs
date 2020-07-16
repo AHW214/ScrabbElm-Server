@@ -11,6 +11,7 @@ module Scrabble.Types where
 import           Control.Concurrent.STM (TBQueue)
 import           Data.Aeson             (FromJSON, ToJSON (..), ToJSONKey)
 import           Data.Map               (Map)
+import           Data.Set               (Set)
 import           Data.Text              (Text)
 import           GHC.Generics           (Generic)
 import           Network.WebSockets     (Connection)
@@ -70,11 +71,12 @@ data Lobby = Lobby
 
 --------------------------------------------------------------------------------
 data Room = Room
-  { roomCapacity :: Int
-  , roomName     :: Text
-  , roomOwner    :: Client
-  , roomPlayers  :: Map Client Player
-  , roomPlaying  :: Maybe Player
+  { roomCapacity       :: Int
+  , roomName           :: Text
+  , roomOwner          :: Client
+  , roomPendingClients :: Set Client
+  , roomPlayers        :: Map Client Player
+  , roomPlaying        :: Maybe Player
   } deriving Generic
 
 
@@ -93,13 +95,6 @@ data RoomView = RoomView
 
 --------------------------------------------------------------------------------
 instance ToJSON RoomView where
-
-
---------------------------------------------------------------------------------
-data RoomHandle = RoomHandle
-  { roomHandlePlayerName :: Text
-  , roomHandleQueue      :: TBQueue RoomEvent
-  }
 
 
 --------------------------------------------------------------------------------
@@ -171,7 +166,7 @@ type LobbyEvent =
 data LobbyEventInternal
   = LobbyClientJoin  Client
   | LobbyClientLeave Client
-  | LobbyRoomRun     Room Text RoomQueue
+  | LobbyRoomRun     Room RoomQueue
   | LobbyRoomUpdate  Room
   | LobbyRoomRemove  Room
 
@@ -194,13 +189,13 @@ type RoomEvent =
 
 --------------------------------------------------------------------------------
 data RoomEventInternal
-  = RoomOwnerJoin        Client Text
-  | RoomPlayerLeave      Client Text
+  = RoomPlayerJoin  Client RoomQueue
+  | RoomPlayerLeave Client
 
 
 --------------------------------------------------------------------------------
 newtype RoomEventExternal
-  = RoomPlayerJoin RoomJoin
+  = RoomPlayerSetName PlayerSetName
 
 
 --------------------------------------------------------------------------------
@@ -216,7 +211,7 @@ type ClientEvent =
 --------------------------------------------------------------------------------
 data ClientEventInternal
   = ClientMessageSend MessageOutbound
-  | ClientRoomJoin Room
+  | ClientRoomJoin    Room RoomQueue
   | ClientRoomLeave
   | ClientDisconnect
 
@@ -236,9 +231,10 @@ data Event a b
 ------------------------------- inbound messages -------------------------------
 --------------------------------------------------------------------------------
 data MessageInbound
-  = RoomMakeInbound RoomMake
-  | RoomJoinInbound RoomJoin
+  = RoomMakeInbound      RoomMake
+  | RoomJoinInbound      RoomJoin
   | RoomLeaveInbound
+  | PlayerSetNameInbound PlayerSetName
   deriving Generic
 
 
@@ -249,7 +245,6 @@ instance FromJSON MessageInbound
 --------------------------------------------------------------------------------
 data RoomMake = RM
   { rmRoomCapacity :: Int
-  , rmPlayerName   :: Text
   , rmRoomName     :: Text
   } deriving Generic
 
@@ -260,8 +255,7 @@ instance FromJSON RoomMake
 
 --------------------------------------------------------------------------------
 data RoomJoin = RJ
-  { rjPlayerName :: Text
-  , rjRoomName   :: Text
+  { rjRoomName :: Text
   } deriving Generic
 
 
@@ -270,17 +264,28 @@ instance FromJSON RoomJoin
 
 
 --------------------------------------------------------------------------------
+data PlayerSetName = PSN
+  { psnPlayerName :: Text
+  } deriving Generic
+
+
+--------------------------------------------------------------------------------
+instance FromJSON PlayerSetName
+
+
+--------------------------------------------------------------------------------
 ------------------------------- outbound messages ------------------------------
 --------------------------------------------------------------------------------
 data MessageOutbound
-  = RoomListOutbound    [ RoomView ]
-  | RoomUpdateOutbound  RoomView
-  | RoomRemoveOutbound  Text
-  | RoomJoinOutbound    Room
+  = RoomListOutbound           [ RoomView ]
+  | RoomUpdateOutbound         RoomView
+  | RoomRemoveOutbound         Text
+  | RoomJoinOutbound           Room
   | RoomLeaveOutbound
-  | PlayerJoinOutbound  Player
-  | PlayerLeaveOutbound Text
-  | ErrorOutbound       Error
+  | PlayerJoinOutbound         Text
+  | PlayerLeaveOutbound        Text
+  | PendingClientLeaveOutbound
+  | ErrorOutbound              Error
   deriving Generic
 
 
@@ -301,6 +306,7 @@ data Error
   | RoomIsFull
   | RoomInGame
   | RoomHasPlayer
+  | PlayerNameAlreadySet
   deriving Generic
 
 

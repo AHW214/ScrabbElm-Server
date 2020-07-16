@@ -5,9 +5,10 @@ module Scrabble.Room
   , RoomEvent
   , RoomQueue
   , RoomView (..)
-  , addPlayer
+  , addPendingClient
   , getClients
   , getPlayer
+  , hasPlayer
   , hasPlayerName
   , isClientOwner
   , inGame
@@ -15,6 +16,8 @@ module Scrabble.Room
   , isFull
   , maxCapacity
   , new
+  , registerPendingClient
+  , removePendingClient
   , removePlayer
   , switchTurn
   , toView
@@ -33,6 +36,7 @@ import           Scrabble.Types  (Room (..), RoomEventExternal (..),
 import qualified Data.List       as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe      as Maybe
+import qualified Data.Set        as Set
 
 import qualified Scrabble.Player as Player
 
@@ -45,11 +49,12 @@ maxCapacity = 4
 --------------------------------------------------------------------------------
 new :: Text -> Int -> Client -> Room
 new name capacity owner = Room
-  { roomCapacity = capacity
-  , roomName     = name
-  , roomOwner    = owner
-  , roomPlayers  = Map.empty
-  , roomPlaying  = Nothing
+  { roomCapacity       = capacity
+  , roomName           = name
+  , roomOwner          = owner
+  , roomPendingClients = Set.empty
+  , roomPlayers        = Map.empty
+  , roomPlaying        = Nothing
   }
 
 
@@ -70,7 +75,8 @@ inGame = Maybe.isJust . roomPlaying
 
 --------------------------------------------------------------------------------
 occupancy :: Room -> Int
-occupancy = length . roomPlayers
+occupancy Room { roomPendingClients, roomPlayers } =
+  length roomPendingClients + length roomPlayers
 
 
 --------------------------------------------------------------------------------
@@ -91,6 +97,16 @@ getPlayer client = Map.lookup client . roomPlayers
 
 
 --------------------------------------------------------------------------------
+hasPlayer :: Client -> Room -> Bool
+hasPlayer client = Map.member client . roomPlayers
+
+
+--------------------------------------------------------------------------------
+hasPendingClient :: Client -> Room -> Bool
+hasPendingClient client = Set.member client . roomPendingClients
+
+
+--------------------------------------------------------------------------------
 getClients :: Room -> [ Client ]
 getClients = Map.keys . roomPlayers
 
@@ -102,12 +118,28 @@ hasPlayerName name =
 
 
 --------------------------------------------------------------------------------
+registerPendingClient :: Client -> Text -> Room -> Maybe Room
+registerPendingClient client playerName room =
+  if hasPendingClient client room then
+    Just $ addPlayer client playerName
+         $ removePendingClient client room
+  else
+    Nothing
+
+
+--------------------------------------------------------------------------------
 addPlayer :: Client -> Text -> Room -> Room
-addPlayer client name room@Room { roomPlayers } =
+addPlayer client playerName room@Room { roomPlayers } =
   room { roomPlayers = Map.insert client player roomPlayers }
   where
     player :: Player
-    player = Player.new name
+    player = Player.new playerName
+
+
+--------------------------------------------------------------------------------
+addPendingClient :: Client -> Room -> Room
+addPendingClient client room@Room { roomPendingClients } =
+  room { roomPendingClients = Set.insert client roomPendingClients }
 
 
 --------------------------------------------------------------------------------
@@ -122,12 +154,12 @@ isClientOwner player = (player ==) . roomOwner
 
 
 --------------------------------------------------------------------------------
-removePlayer :: Client -> Room -> Maybe Room
+removePlayer :: Client -> Room -> Room
 removePlayer client room@Room { roomPlayers } =
-  if null players then
-    Nothing
-  else
-    Just $ room { roomPlayers = players }
-  where
-    players =
-      Map.delete client roomPlayers
+  room { roomPlayers = Map.delete client roomPlayers }
+
+
+--------------------------------------------------------------------------------
+removePendingClient :: Client -> Room -> Room
+removePendingClient client room@Room { roomPendingClients } =
+  room { roomPendingClients = Set.delete client roomPendingClients }

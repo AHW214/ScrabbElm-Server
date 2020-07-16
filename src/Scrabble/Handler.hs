@@ -8,7 +8,6 @@ module Scrabble.Handler
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent.STM   (TBQueue)
-import           Data.Text                (Text)
 import           System.Exit              (exitSuccess)
 
 import           Scrabble.Message         (Message (..))
@@ -41,11 +40,11 @@ type HandlerExternal state event error =
 
 --------------------------------------------------------------------------------
 lobbyHandler :: Context -> Handler Lobby LobbyEvent
-lobbyHandler context = -- do something with context [e.g. replace lobbyQueue param]
+lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } =
   createHandler handlerInternal handlerExternal
   where
     handlerInternal :: HandlerInternal Lobby LobbyEventInternal
-    handlerInternal lobby@Lobby { lobbyQueue } = \case
+    handlerInternal lobby = \case
       LobbyClientJoin client ->
         let
           roomViews = Lobby.listRoomViews lobby
@@ -59,16 +58,16 @@ lobbyHandler context = -- do something with context [e.g. replace lobbyQueue par
         , noAction
         )
 
-      LobbyRoomRun room@Room { roomOwner } ownerName roomQueue ->
+      LobbyRoomRun room@Room { roomOwner } roomQueue ->
         let
           handler =
-            roomHandler lobbyQueue
+            roomHandler context
 
           runRoom =
             processQueue handler roomQueue room
 
           tellRoom =
-            Event.emitIO roomQueue $ RoomOwnerJoin roomOwner ownerName
+            Event.emitIO roomQueue $ RoomPlayerJoin roomOwner roomQueue
         in
           ( Lobby.addRoom roomQueue room lobby
           , Async.async runRoom >> tellRoom
@@ -88,8 +87,8 @@ lobbyHandler context = -- do something with context [e.g. replace lobbyQueue par
         )
 
     handlerExternal :: HandlerExternal Lobby LobbyEventExternal Error
-    handlerExternal lobby@Lobby { lobbyQueue } client = \case
-      LobbyRoomMake (RM { rmRoomCapacity = capacity, rmPlayerName = playerName, rmRoomName = roomName }) ->
+    handlerExternal lobby client = \case
+      LobbyRoomMake (RM { rmRoomCapacity = capacity, rmRoomName = roomName }) ->
         case Lobby.getRoom roomName lobby of
           Nothing ->
             if capacity > 0 && capacity <= Room.maxCapacity then
@@ -98,7 +97,7 @@ lobbyHandler context = -- do something with context [e.g. replace lobbyQueue par
               in
                 Right ( lobby
                       , STM.atomically
-                          $ Event.emit lobbyQueue . LobbyRoomRun room playerName
+                          $ Event.emit lobbyQueue . LobbyRoomRun room
                           =<< STM.newTBQueue 256 -- todo
                       )
             else
@@ -107,99 +106,104 @@ lobbyHandler context = -- do something with context [e.g. replace lobbyQueue par
           _ ->
             Left RoomAlreadyExists
 
-      LobbyRoomJoin (roomJoin@RJ { rjRoomName = roomName }) ->
+      LobbyRoomJoin (RJ { rjRoomName = roomName }) ->
         case Lobby.getRoom roomName lobby of
-          Just ( _, roomQueue ) ->
-            Right ( lobby
-                  , Event.passIO roomQueue client $ RoomPlayerJoin roomJoin
-                  )
+          Just ( RoomView { roomViewCapacity, roomViewInGame, roomViewOccupancy }, roomQueue ) ->
+            if | roomViewInGame -> -- todo: refactor into functions consuming roomview
+                  Left RoomInGame
+
+               | roomViewOccupancy >= roomViewCapacity ->
+                  Left RoomIsFull
+
+               | otherwise ->
+                  Right ( lobby
+                        , Event.emitIO roomQueue $ RoomPlayerJoin client roomQueue
+                        )
 
           _ ->
             Left RoomDoesNotExist
 
 
 --------------------------------------------------------------------------------
-roomHandler :: LobbyQueue -> Handler Room RoomEvent
-roomHandler lobbyQueue =
+roomHandler :: Context -> Handler Room RoomEvent
+roomHandler Context { contextLobbyQueue = lobbyQueue } =
   createHandler handlerInternal handlerExternal
   where
     handlerInternal :: HandlerInternal Room RoomEventInternal
     handlerInternal room = \case
-      RoomOwnerJoin client ownerName ->
-        addPlayer client ownerName room
+      RoomPlayerJoin client@Client { clientQueue } roomQueue ->
+        let
+          newRoom = Room.addPendingClient client room
+        in
+          ( newRoom
+          , STM.atomically $ do
+              Event.emit lobbyQueue $ LobbyClientLeave client
+              Event.emit lobbyQueue $ LobbyRoomUpdate newRoom
+              Event.emit clientQueue $ ClientRoomJoin newRoom roomQueue
+          )
 
-      RoomPlayerLeave client playerName ->
-        removePlayer client playerName room
+      RoomPlayerLeave client@Client { clientQueue } ->
+        let ( removeClient, roomEvent ) =
+              case Room.getPlayer client room of
+                Just Player { playerName } ->
+                  ( Room.removePlayer, PlayerLeaveOutbound playerName )
+
+                _ ->
+                  ( Room.removePendingClient, PendingClientLeaveOutbound )
+
+            newRoom =
+              removeClient client room
+
+            ( lobbyEvent, roomAction ) =
+              if Room.isEmpty newRoom then
+                ( LobbyRoomRemove
+                , exitSuccess
+                )
+              else
+                ( LobbyRoomUpdate
+                , broadcastRoom newRoom roomEvent
+                )
+        in
+          ( newRoom
+          , do
+              STM.atomically $ do
+                Event.emit lobbyQueue $ lobbyEvent newRoom
+                Event.emit lobbyQueue $ LobbyClientJoin client
+                Event.emit clientQueue ClientRoomLeave
+              roomAction -- if broadcast then perform atomically ?
+          )
 
     handlerExternal :: HandlerExternal Room RoomEventExternal Error
     handlerExternal room client = \case
-      RoomPlayerJoin (RJ { rjPlayerName = playerName }) ->
-        if | Room.inGame room ->
-              Left RoomInGame
+      RoomPlayerSetName (PSN { psnPlayerName = playerName }) ->
+        if Room.hasPlayerName playerName room then
+          Left RoomHasPlayer
+        else
+          case Room.registerPendingClient client playerName room of
+            Just newRoom ->
+              Right ( newRoom
+                    , broadcastRoom room $ PlayerJoinOutbound playerName
+                    )
 
-           | Room.isFull room ->
-              Left RoomIsFull
-
-           | Room.hasPlayerName playerName room ->
-              Left RoomHasPlayer
-
-           | otherwise ->
-              Right $ addPlayer client playerName room
-
-
-    addPlayer :: Client -> Text -> Room -> ( Room, IO () )
-    addPlayer client@Client { clientQueue } name room =
-      let
-        newRoom = Room.addPlayer client name room
-      in
-        ( newRoom
-        , STM.atomically $ do
-            Event.emit lobbyQueue $ LobbyClientLeave client
-            Event.emit lobbyQueue $ LobbyRoomUpdate newRoom
-            Event.emit clientQueue $ ClientRoomJoin newRoom
-        )
-
-    removePlayer :: Client -> Text -> Room -> ( Room, IO () )
-    removePlayer client@Client { clientQueue } name room =
-      let ( newState, lobbyEvent, roomAction ) =
-            case Room.removePlayer client room of
-              Just newRoom ->
-                ( newRoom
-                , LobbyRoomUpdate
-                , broadcastRoom newRoom $ PlayerLeaveOutbound name
-                )
-
-              _ ->
-                ( room
-                , LobbyRoomRemove
-                , exitSuccess
-                )
-      in
-        ( newState
-        , do
-            STM.atomically $ do
-              Event.emit lobbyQueue $ lobbyEvent newState
-              Event.emit lobbyQueue $ LobbyClientJoin client
-              Event.emit clientQueue ClientRoomLeave
-            roomAction
-        )
+            _ ->
+              Left PlayerNameAlreadySet
 
 
 --------------------------------------------------------------------------------
-clientHandler :: LobbyQueue -> Handler ( Client, Maybe RoomHandle ) ClientEvent
-clientHandler lobbyQueue =
+clientHandler :: Context -> Handler ( Client, Maybe RoomQueue ) ClientEvent
+clientHandler Context { contextLobbyQueue = lobbyQueue } =
   createHandler handlerInternal handlerExternal
   where
-    handlerInternal :: HandlerInternal ( Client, Maybe RoomHandle ) ClientEventInternal
-    handlerInternal state@( client@Client { clientConnection }, maybeHandle ) = \case
+    handlerInternal :: HandlerInternal ( Client, Maybe RoomQueue ) ClientEventInternal
+    handlerInternal state@( client@Client { clientConnection }, maybeRoomQueue ) = \case
       ClientMessageSend message ->
         ( state
         , WS.sendTextData clientConnection $ JSON.encode message
         )
 
-      ClientRoomJoin roomQueue ->
-        ( ( client, undefined {- Just roomQueue -} )
-        , toClient client $ RoomJoinOutbound roomQueue
+      ClientRoomJoin room roomQueue ->
+        ( ( client, Just roomQueue )
+        , toClient client $ RoomJoinOutbound room
         )
 
       ClientRoomLeave ->
@@ -211,21 +215,18 @@ clientHandler lobbyQueue =
         ( state
         , let
             toEmit =
-              case maybeHandle of
-                Just RoomHandle { roomHandleQueue, roomHandlePlayerName } ->
-                  Event.emitIO roomHandleQueue
-                  . flip RoomPlayerLeave
-                    roomHandlePlayerName
+              case maybeRoomQueue of
+                Just roomQueue ->
+                  Event.emitIO roomQueue . RoomPlayerLeave
 
                 _ ->
-                  Event.emitIO lobbyQueue
-                  . LobbyClientLeave
+                  Event.emitIO lobbyQueue . LobbyClientLeave
           in
             toEmit client >> exitSuccess
         )
 
-    handlerExternal :: HandlerExternal ( Client, Maybe RoomHandle ) ClientEventExternal Error
-    handlerExternal state@( client, maybeHandle ) _ = \case
+    handlerExternal :: HandlerExternal ( Client, Maybe RoomQueue ) ClientEventExternal Error
+    handlerExternal state@( client, maybeRoomQueue ) _ = \case
       ClientMessageReceive received ->
         case received of
           Left decodeError ->
@@ -233,9 +234,9 @@ clientHandler lobbyQueue =
 
           Right message ->
             ( state, ) <$>
-              case maybeHandle of
-                Just RoomHandle { roomHandlePlayerName, roomHandleQueue } ->
-                  Event.emitIO roomHandleQueue <$> whenInRoom client roomHandlePlayerName message
+              case maybeRoomQueue of
+                Just roomQueue ->
+                  whenInRoom roomQueue client message
 
                 _ ->
                   Event.passIO lobbyQueue client <$> whenInLobby message
@@ -251,10 +252,13 @@ clientHandler lobbyQueue =
       _ ->
         Left ClientNotInLobby
 
-    whenInRoom :: Client -> Text -> MessageInbound -> Either Error RoomEventInternal
-    whenInRoom client playerName = \case
+    whenInRoom :: RoomQueue -> Client -> MessageInbound -> Either Error (IO ())
+    whenInRoom roomQueue client = \case
       RoomLeaveInbound ->
-        Right $ RoomPlayerLeave client playerName
+        Right $ Event.emitIO roomQueue (RoomPlayerLeave client)
+
+      PlayerSetNameInbound playerSetName ->
+        Right $ Event.passIO roomQueue client (RoomPlayerSetName playerSetName)
 
       _ ->
         Left ClientNotInRoom
