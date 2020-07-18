@@ -1,9 +1,5 @@
 module Scrabble.Lobby
   ( Lobby (..)
-  , LobbyEventExternal (..)
-  , LobbyEventInternal (..)
-  , LobbyEvent
-  , LobbyQueue
   , addClient
   , addRoom
   , getRoom
@@ -18,10 +14,8 @@ module Scrabble.Lobby
 import           Data.Text       (Text)
 
 import           Scrabble.Client (Client (..))
-import           Scrabble.Room   (Room (..), RoomQueue, RoomView (..))
-import           Scrabble.Types  (Lobby (..), LobbyEventExternal (..),
-                                  LobbyEventInternal (..), LobbyEvent,
-                                  LobbyQueue)
+import           Scrabble.Room   (Room (..), RoomView (..))
+import           Scrabble.Types  (EventQueue, Lobby (..))
 
 import qualified Data.Map        as Map
 
@@ -34,7 +28,7 @@ listRoomViews = fmap fst . Map.elems . lobbyRooms
 
 
 --------------------------------------------------------------------------------
-getRoom :: Text -> Lobby -> Maybe ( RoomView, RoomQueue )
+getRoom :: Text -> Lobby -> Maybe ( RoomView, EventQueue Room )
 getRoom name = Map.lookup name . lobbyRooms
 
 
@@ -55,7 +49,7 @@ updateRoomView roomView@RoomView { roomViewName } lobby@Lobby { lobbyRooms } = l
 
 
 --------------------------------------------------------------------------------
-addRoom :: RoomQueue -> Room -> Lobby -> Lobby
+addRoom :: EventQueue Room -> Room -> Lobby -> Lobby
 addRoom roomQueue room lobby@Lobby { lobbyRooms } = lobby
   { lobbyRooms =
       Map.insert roomViewName ( roomView, roomQueue ) lobbyRooms

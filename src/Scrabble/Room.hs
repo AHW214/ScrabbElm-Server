@@ -1,9 +1,5 @@
 module Scrabble.Room
   ( Room (..)
-  , RoomEventExternal (..)
-  , RoomEventInternal (..)
-  , RoomEvent
-  , RoomQueue
   , RoomView (..)
   , addPendingClient
   , getClients
@@ -29,9 +25,7 @@ import           Data.Text       (Text)
 
 import           Scrabble.Client (Client (..))
 import           Scrabble.Player (Player (..))
-import           Scrabble.Types  (Room (..), RoomEventExternal (..),
-                                  RoomEventInternal (..), RoomEvent,
-                                  RoomQueue, RoomView (..))
+import           Scrabble.Types  (Room (..), RoomView (..))
 
 import qualified Data.List       as List
 import qualified Data.Map.Strict as Map

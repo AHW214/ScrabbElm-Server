@@ -3,13 +3,16 @@
 --------------------------------------------------------------------------------
 
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GADTs         #-}
+{-# LANGUAGE TypeFamilies  #-}
 
 module Scrabble.Types where
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM (TBQueue)
+import           Control.Concurrent.STM (STM, TBQueue)
 import           Data.Aeson             (FromJSON, ToJSON (..), ToJSONKey)
+import           Data.Kind              (Type)
 import           Data.Map               (Map)
 import           Data.Set               (Set)
 import           Data.Text              (Text)
@@ -17,16 +20,21 @@ import           GHC.Generics           (Generic)
 import           Network.WebSockets     (Connection)
 import           Text.Read              (readMaybe)
 
+import qualified Control.Arrow          as Arrow
+import qualified Control.Concurrent.STM as STM
 import qualified Data.Aeson             as JSON
+import qualified Data.Foldable          as Foldable
+import qualified Data.Map               as Map
 import qualified Data.Text              as Text
+import qualified Network.WebSockets     as WS
 
 
 --------------------------------------------------------------------------------
 ------------------------------------ server ------------------------------------
 --------------------------------------------------------------------------------
 data Context = Context
-  { contextLobbyQueue  :: LobbyQueue
-  , contextLoggerQueue :: LoggerQueue
+  { contextLobbyQueue  :: EventQueue Lobby
+  , contextLoggerQueue :: TBQueue Log
   , contextLogLevel    :: LogLevel
   }
 
@@ -62,11 +70,44 @@ instance FromJSON LogLevel where
 --------------------------------------------------------------------------------
 ------------------------------------ models ------------------------------------
 --------------------------------------------------------------------------------
+class Model a where
+  data Event a :: Type
+
+  emit :: EventQueue a -> Event a -> STM ()
+  emit = STM.writeTBQueue
+
+  emitIO :: EventQueue a -> Event a -> IO ()
+  emitIO queue = STM.atomically . emit queue
+
+  receive :: EventQueue a -> STM (Event a)
+  receive = STM.readTBQueue
+
+  receiveIO :: EventQueue a -> IO (Event a)
+  receiveIO = STM.atomically . receive
+
+
+--------------------------------------------------------------------------------
+type EventQueue a = TBQueue (Event a)
+
+
+--------------------------------------------------------------------------------
 data Lobby = Lobby
   { lobbyClients :: Map Text Client
-  , lobbyQueue   :: LobbyQueue
-  , lobbyRooms   :: Map Text ( RoomView, RoomQueue )
+  , lobbyQueue   :: EventQueue Lobby
+  , lobbyRooms   :: Map Text ( RoomView, (EventQueue Room) )
   }
+
+
+--------------------------------------------------------------------------------
+instance Model Lobby where
+  data Event Lobby
+    = LobbyClientJoin  Client
+    | LobbyClientLeave Client
+    | LobbyRoomMake    RoomMake Client
+    | LobbyRoomJoin    RoomJoin Client
+    | LobbyRoomRun     Room (EventQueue Room)
+    | LobbyRoomUpdate  Room
+    | LobbyRoomRemove  Room
 
 
 --------------------------------------------------------------------------------
@@ -78,6 +119,14 @@ data Room = Room
   , roomPlayers        :: Map Client Player
   , roomPlaying        :: Maybe Player
   } deriving Generic
+
+
+--------------------------------------------------------------------------------
+instance Model Room where
+  data Event Room
+    = RoomPlayerJoin    Client (EventQueue Room)
+    | RoomPlayerLeave   Client
+    | RoomPlayerSetName PlayerSetName Client
 
 
 --------------------------------------------------------------------------------
@@ -118,8 +167,18 @@ instance Eq Player where
 data Client = Client
   { clientConnection :: Connection
   , clientId         :: Text
-  , clientQueue      :: ClientQueue
+  , clientQueue      :: EventQueue Client
   }
+
+
+--------------------------------------------------------------------------------
+instance Model Client where
+  data Event Client
+    = ClientMessageReceive (Either Text (Message Inbound))
+    | ClientMessageSend    (Message Outbound)
+    | ClientRoomJoin       Room (EventQueue Room)
+    | ClientRoomLeave
+    | ClientDisconnect
 
 
 --------------------------------------------------------------------------------
@@ -146,100 +205,66 @@ instance Eq Client where
 
 
 --------------------------------------------------------------------------------
------------------------------------- events ------------------------------------
+-------------------------------- communications --------------------------------
 --------------------------------------------------------------------------------
-type LoggerQueue =
-  TBQueue Log
+class Monad m => Communicate m where
+  broadcastLobby :: Lobby -> Message Outbound -> m ()
 
+  broadcastRoom :: Room -> Message Outbound -> m ()
 
---------------------------------------------------------------------------------
-type LobbyQueue =
-  TBQueue LobbyEvent
+  fromClient :: Client -> m (Either Text (Message Inbound))
 
+  errorToClient :: Client -> Error -> m ()
 
---------------------------------------------------------------------------------
-type LobbyEvent =
-  Event LobbyEventInternal LobbyEventExternal
+  toClient :: Client -> Message Outbound -> m ()
 
-
---------------------------------------------------------------------------------
-data LobbyEventInternal
-  = LobbyClientJoin  Client
-  | LobbyClientLeave Client
-  | LobbyRoomRun     Room RoomQueue
-  | LobbyRoomUpdate  Room
-  | LobbyRoomRemove  Room
+  toClients :: Foldable t => t Client -> Message Outbound -> m ()
 
 
 --------------------------------------------------------------------------------
-data LobbyEventExternal
-  = LobbyRoomMake RoomMake
-  | LobbyRoomJoin RoomJoin
+instance Communicate IO where
+  broadcastLobby Lobby { lobbyClients } =
+    toClients lobbyClients
+
+  broadcastRoom =
+    toClients . Map.keys . roomPlayers
+
+  fromClient =
+    fmap (Arrow.left Text.pack . JSON.eitherDecodeStrict')
+    . WS.receiveData
+    . clientConnection
+
+  errorToClient client =
+    toClient client . ErrorOutbound
+
+  toClient Client { clientQueue } =
+    emitIO clientQueue . ClientMessageSend
+
+  toClients clients message =
+    Foldable.traverse_ (flip toClient message) clients -- perform all as STM atomically ?
 
 
 --------------------------------------------------------------------------------
-type RoomQueue =
-  TBQueue RoomEvent
+class Communication a where
+  data Message a :: Type
 
 
 --------------------------------------------------------------------------------
-type RoomEvent =
-  Event RoomEventInternal RoomEventExternal
+data Inbound = Inbound
 
 
 --------------------------------------------------------------------------------
-data RoomEventInternal
-  = RoomPlayerJoin  Client RoomQueue
-  | RoomPlayerLeave Client
+instance Communication Inbound where
+  data Message Inbound
+    = RoomMakeInbound      RoomMake
+    | RoomJoinInbound      RoomJoin
+    | RoomLeaveInbound
+    | PlayerSetNameInbound PlayerSetName
+    deriving Generic
 
 
 --------------------------------------------------------------------------------
-newtype RoomEventExternal
-  = RoomPlayerSetName PlayerSetName
-
-
---------------------------------------------------------------------------------
-type ClientQueue =
-  TBQueue ClientEvent
-
-
---------------------------------------------------------------------------------
-type ClientEvent =
-  Event ClientEventInternal ClientEventExternal
-
-
---------------------------------------------------------------------------------
-data ClientEventInternal
-  = ClientMessageSend MessageOutbound
-  | ClientRoomJoin    Room RoomQueue
-  | ClientRoomLeave
-  | ClientDisconnect
-
-
---------------------------------------------------------------------------------
-newtype ClientEventExternal
-  = ClientMessageReceive (Either Text MessageInbound)
-
-
---------------------------------------------------------------------------------
-data Event a b
-  = EventInternal a
-  | EventExternal Client b
-
-
---------------------------------------------------------------------------------
-------------------------------- inbound messages -------------------------------
---------------------------------------------------------------------------------
-data MessageInbound
-  = RoomMakeInbound      RoomMake
-  | RoomJoinInbound      RoomJoin
-  | RoomLeaveInbound
-  | PlayerSetNameInbound PlayerSetName
-  deriving Generic
-
-
---------------------------------------------------------------------------------
-instance FromJSON MessageInbound
+instance FromJSON (Message Inbound)
 
 
 --------------------------------------------------------------------------------
@@ -274,23 +299,26 @@ instance FromJSON PlayerSetName
 
 
 --------------------------------------------------------------------------------
-------------------------------- outbound messages ------------------------------
---------------------------------------------------------------------------------
-data MessageOutbound
-  = RoomListOutbound           [ RoomView ]
-  | RoomUpdateOutbound         RoomView
-  | RoomRemoveOutbound         Text
-  | RoomJoinOutbound           Room
-  | RoomLeaveOutbound
-  | PlayerJoinOutbound         Text
-  | PlayerLeaveOutbound        Text
-  | PendingClientLeaveOutbound
-  | ErrorOutbound              Error
-  deriving Generic
+data Outbound = Outbound
 
 
 --------------------------------------------------------------------------------
-instance ToJSON MessageOutbound where
+instance Communication Outbound where
+  data Message Outbound
+    = RoomListOutbound           [ RoomView ]
+    | RoomUpdateOutbound         RoomView
+    | RoomRemoveOutbound         Text
+    | RoomJoinOutbound           Room
+    | RoomLeaveOutbound
+    | PlayerJoinOutbound         Text
+    | PlayerLeaveOutbound        Text
+    | PendingClientLeaveOutbound
+    | ErrorOutbound              Error
+    deriving Generic
+
+
+--------------------------------------------------------------------------------
+instance ToJSON (Message Outbound) where
 
 
 --------------------------------------------------------------------------------

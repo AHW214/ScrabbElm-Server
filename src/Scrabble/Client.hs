@@ -1,9 +1,5 @@
 module Scrabble.Client
   ( Client (..)
-  , ClientEventExternal
-  , ClientEventInternal
-  , ClientEvent
-  , ClientQueue
   , new
   , send
   ) where
@@ -13,9 +9,7 @@ module Scrabble.Client
 import           Data.Text          (Text)
 import           Network.WebSockets (Connection)
 
-import           Scrabble.Types     (Client (..), ClientEventExternal (..),
-                                     ClientEventInternal (..), ClientEvent,
-                                     ClientQueue)
+import           Scrabble.Types     (Client (..), EventQueue)
 
 import qualified Network.WebSockets as WS
 
@@ -27,5 +21,5 @@ send Client { clientConnection } =
 
 
 --------------------------------------------------------------------------------
-new :: Connection -> Text -> ClientQueue -> Client
+new :: Connection -> Text -> EventQueue Client -> Client
 new = Client
