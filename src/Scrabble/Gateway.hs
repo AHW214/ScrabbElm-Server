@@ -3,7 +3,6 @@ module Scrabble.Gateway
   , addTimeout
   , createClientId
   , createClientJWT
-  , createSecret
   , deleteTimeout
   , new
   , removeTimeout
@@ -16,7 +15,7 @@ import           Control.Concurrent.Async (Async)
 import           Control.Monad            ((<=<))
 import           Data.Aeson               (FromJSON, Result (..), Value)
 import           Data.Text                (Text)
-import           Data.Time.Clock          (NominalDiffTime, UTCTime)
+import           Data.Time.Clock          (UTCTime)
 import           Data.Time.Clock.POSIX    (utcTimeToPOSIXSeconds)
 import           Prelude                  hiding (exp)
 import           System.Random            (RandomGen, StdGen)
@@ -25,6 +24,7 @@ import           Web.JWT                  (Algorithm (HS256),
                                            JOSEHeader (..), JWT, JWTClaimsSet (..),
                                            NumericDate, Signer, VerifiedJWT)
 
+import           Scrabble.Config          (Config (..))
 import           Scrabble.Random          (randomRSequence)
 import           Scrabble.Types           (EventQueue, Gateway (..), Secret (..))
 
@@ -37,13 +37,13 @@ import qualified Web.JWT                  as JWT
 
 
 --------------------------------------------------------------------------------
-new :: StdGen -> Secret -> NominalDiffTime -> EventQueue Gateway -> Gateway
-new stdGen secret timeoutLength queue = Gateway
-  { gatewayAuthSecret    = secret
+new :: Config -> StdGen -> EventQueue Gateway -> Gateway
+new Config { configAuthSecret, configTimeoutLength } stdGen queue = Gateway
+  { gatewayAuthSecret    = configAuthSecret
   , gatewayQueue         = queue
   , gatewayStdGen        = stdGen
   , gatewayTimeouts      = Map.empty
-  , gatewayTimeoutLength = timeoutLength
+  , gatewayTimeoutLength = configTimeoutLength
   }
 
 
@@ -87,11 +87,6 @@ addTimeout :: Text -> Async () -> Gateway -> Gateway
 addTimeout clientId timeout gateway@Gateway { gatewayTimeouts } = gateway
   { gatewayTimeouts = Map.insert clientId timeout gatewayTimeouts
   }
-
-
---------------------------------------------------------------------------------
-createSecret :: Text -> Secret
-createSecret = Secret . JWT.hmacSecret
 
 
 --------------------------------------------------------------------------------

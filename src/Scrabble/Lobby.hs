@@ -4,6 +4,7 @@ module Scrabble.Lobby
   , addRoom
   , getRoom
   , listRoomViews
+  , new
   , removeClient
   , removeRoom
   , updateRoomView
@@ -73,4 +74,13 @@ addClient :: Client -> Lobby -> Lobby
 addClient client@Client { clientId } lobby@Lobby { lobbyClients } = lobby
   { lobbyClients =
       Map.insert clientId client lobbyClients
+  }
+
+
+--------------------------------------------------------------------------------
+new :: EventQueue Lobby -> Lobby
+new eventQueue = Lobby
+  { lobbyClients = Map.empty
+  , lobbyQueue   = eventQueue
+  , lobbyRooms   = Map.empty
   }

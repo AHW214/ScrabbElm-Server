@@ -15,6 +15,7 @@ import           Data.Aeson               (FromJSON (..), ToJSON (..), ToJSONKey
 import           Data.Kind                (Type)
 import           Data.Map.Strict          (Map)
 import           Data.Set                 (Set)
+import           Data.String              (IsString (..))
 import           Data.Text                (Text)
 import           Data.Time                (NominalDiffTime)
 import           GHC.Generics             (Generic)
@@ -22,7 +23,7 @@ import           Network.WebSockets       (Connection)
 import           Numeric.Natural          (Natural)
 import           System.Random            (StdGen)
 import           Text.Read                (readMaybe)
-import           Web.JWT                  (Signer)
+import           Web.JWT                  (Signer (..))
 
 import qualified Control.Arrow            as Arrow
 import qualified Control.Concurrent.STM   as STM
@@ -31,7 +32,6 @@ import qualified Data.Foldable            as Foldable
 import qualified Data.Map.Strict          as Map
 import qualified Data.Text                as Text
 import qualified Network.WebSockets       as WS
-import qualified Web.JWT                  as JWT
 
 
 --------------------------------------------------------------------------------
@@ -78,11 +78,13 @@ instance FromJSON LogLevel where
 class Model a where
   data Event a :: Type
 
-  createQueue :: Natural -> STM (EventQueue a)
-  createQueue = fmap EventQueue . STM.newTBQueue
+  queueBound :: QueueBound a
 
-  createQueueIO :: Natural -> IO (EventQueue a)
-  createQueueIO = fmap EventQueue . STM.newTBQueueIO
+  createQueue :: STM (EventQueue a)
+  createQueue = createQueueWith STM.newTBQueue queueBound
+
+  createQueueIO :: IO (EventQueue a)
+  createQueueIO = createQueueWith STM.newTBQueueIO queueBound
 
   emit :: EventQueue a -> Event a -> STM ()
   emit (EventQueue queue) = STM.writeTBQueue queue
@@ -95,6 +97,21 @@ class Model a where
 
   receiveIO :: EventQueue a -> IO (Event a)
   receiveIO = STM.atomically . receive
+
+
+--------------------------------------------------------------------------------
+createQueueWith
+  :: Monad m
+  => (Natural -> m (TBQueue (Event a)))
+  -> QueueBound a
+  -> m (EventQueue a)
+createQueueWith newQueue (QueueBound natural) =
+  EventQueue <$> newQueue natural
+
+
+--------------------------------------------------------------------------------
+newtype QueueBound a = QueueBound Natural
+  deriving Num
 
 
 --------------------------------------------------------------------------------
@@ -118,7 +135,9 @@ instance Model Gateway where
     = GatewayCreateJWT     (TBQueue Text)
     | GatewayAddTimeout    Text (Async ())
     | GatewayDeleteTimeout Text
-    | GatewayAuthenticate  Connection Text
+    | GatewayAuthenticate  Text Connection (TBQueue (Either Error (EventQueue Client)))
+
+  queueBound = 4096
 
 
 --------------------------------------------------------------------------------
@@ -126,8 +145,13 @@ newtype Secret = Secret Signer
 
 
 --------------------------------------------------------------------------------
+instance IsString Secret where
+  fromString = Secret . HMACSecret . fromString
+
+
+--------------------------------------------------------------------------------
 instance FromJSON Secret where
-  parseJSON = fmap (Secret . JWT.hmacSecret) . parseJSON
+  parseJSON = fmap fromString . parseJSON
 
 
 --------------------------------------------------------------------------------
@@ -149,6 +173,8 @@ instance Model Lobby where
     | LobbyRoomUpdate  Room
     | LobbyRoomRemove  Room
 
+  queueBound = 4096
+
 
 --------------------------------------------------------------------------------
 data Room = Room
@@ -167,6 +193,8 @@ instance Model Room where
     = RoomPlayerJoin    Client (EventQueue Room)
     | RoomPlayerLeave   Client
     | RoomPlayerSetName PlayerSetName Client
+
+  queueBound = 256
 
 
 --------------------------------------------------------------------------------
@@ -221,6 +249,8 @@ instance Model Client where
     | ClientRoomLeave
     | ClientDisconnect
 
+  queueBound = 256
+
 
 --------------------------------------------------------------------------------
 instance ToJSONKey Client where
@@ -253,8 +283,6 @@ class Monad m => Communicate m where
 
   broadcastRoom :: Room -> Message Outbound -> m ()
 
-  fromClient :: Client -> m (Either Text (Message Inbound))
-
   errorToClient :: Client -> Error -> m ()
 
   toClients :: Foldable t => t Client -> Message Outbound -> m ()
@@ -265,6 +293,8 @@ class Monad m => Communicate m where
 
   toConnection :: Connection -> Message Outbound -> m ()
 
+  fromConnection :: Connection -> m (Either Text (Message Inbound))
+
 
 --------------------------------------------------------------------------------
 instance Communicate IO where
@@ -273,11 +303,6 @@ instance Communicate IO where
 
   broadcastRoom =
     toClients . Map.keys . roomPlayers
-
-  fromClient =
-    fmap (Arrow.left Text.pack . JSON.eitherDecodeStrict')
-    . WS.receiveData
-    . clientConnection
 
   errorToClient client =
     toClient client . ErrorOutbound
@@ -293,6 +318,10 @@ instance Communicate IO where
 
   toConnection connection =
     WS.sendTextData connection . JSON.encode
+
+  fromConnection =
+    fmap (Arrow.left Text.pack . JSON.eitherDecodeStrict')
+    . WS.receiveData
 
 
 --------------------------------------------------------------------------------

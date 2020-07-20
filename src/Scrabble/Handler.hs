@@ -9,6 +9,7 @@ module Scrabble.Handler
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent.Async (Async)
+import           Control.Concurrent.STM   (TBQueue)
 import           Data.Text                (Text)
 import           Data.Time                (NominalDiffTime)
 import           System.Exit              (exitSuccess)
@@ -67,7 +68,7 @@ gatewayHandler
       , noAction
       )
 
-    GatewayAuthenticate connection response ->
+    GatewayAuthenticate response connection wsQueue ->
       case Gateway.verifyClientJWT gateway response of
         Just clientId ->
           case Gateway.removeTimeout clientId gateway of
@@ -76,24 +77,27 @@ gatewayHandler
               , do
                   Async.cancel timeout
 
-                  clientQueue <- createQueueIO 256 -- todo
+                  clientQueue <- createQueueIO
 
                   let
                     client = Client.new connection clientId clientQueue
                     handler = clientHandler context
 
                   Async.async $ processQueue handler clientQueue client
-                  emitIO lobbyQueue $ LobbyClientJoin client
+
+                  STM.atomically $ do
+                    emit lobbyQueue $ LobbyClientJoin client
+                    STM.writeTBQueue wsQueue $ Right clientQueue
               )
 
             _ ->
               ( gateway
-              , closeConnection connection AuthIdentityInvalid
+              , errorToWS wsQueue AuthIdentityInvalid
               )
 
         _ ->
           ( gateway
-          , closeConnection connection AuthFormatInvalid
+          , errorToWS wsQueue AuthFormatInvalid
           )
   where
     createTimeout :: Text -> IO (Async ())
@@ -110,6 +114,9 @@ gatewayHandler
     nominalToMicroseconds :: NominalDiffTime -> Int
     nominalToMicroseconds =
       floor . (1e6 *) . Time.nominalDiffTimeToSeconds
+
+    errorToWS :: TBQueue (Either Error (EventQueue Client)) -> Error -> IO ()
+    errorToWS wsQueue = STM.atomically . STM.writeTBQueue wsQueue . Left
 
 
 --------------------------------------------------------------------------------
@@ -166,7 +173,7 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
             in
               STM.atomically
                 $ emit lobbyQueue . LobbyRoomRun room
-                =<< createQueue 256 -- todo
+                =<< createQueue
           else
             errorToClient client RoomCapacityInvalid
 
