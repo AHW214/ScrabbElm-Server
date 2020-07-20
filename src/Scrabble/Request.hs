@@ -30,10 +30,12 @@ app gatewayQueue request respond = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        jwt <- STM.atomically $ do
-            jwtQueue <- STM.newTBQueue 256 -- todo
-            emit gatewayQueue $ GatewayCreateJWT jwtQueue
-            STM.readTBQueue jwtQueue
+        jwtQueue <- STM.atomically $ do
+            queue <- STM.newTBQueue 256 -- todo
+            emit gatewayQueue $ GatewayCreateJWT queue
+            pure queue
+
+        jwt <- STM.atomically $ STM.readTBQueue jwtQueue
 
         pure ( status200, getHeaders, txtToBsl jwt )
 

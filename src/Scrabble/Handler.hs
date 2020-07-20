@@ -9,16 +9,18 @@ module Scrabble.Handler
 
 --------------------------------------------------------------------------------
 import           Control.Concurrent.Async (Async)
-import           Control.Concurrent.STM   (TBQueue)
 import           Data.Text                (Text)
 import           Data.Time                (NominalDiffTime)
 import           System.Exit              (exitSuccess)
+import           TextShow                 (showt)
 
 import           Scrabble.Types
+import           Scrabble.Log             (Logger (..))
 
 import qualified Control.Concurrent       as Concurrent
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM   as STM
+import qualified Data.Text                as Text
 import qualified Data.Time                as Time
 
 import qualified Scrabble.Client          as Client
@@ -50,6 +52,8 @@ gatewayHandler
       in
         ( newGateway
         , do
+            logInfo context $ "Sending token to client #" <> clientId
+
             jwt <- Gateway.createClientJWT clientId gateway
             timeout <- createTimeout clientId
 
@@ -57,15 +61,30 @@ gatewayHandler
               STM.writeTBQueue jwtQueue jwt
               emit gatewayQueue $ GatewayAddTimeout clientId timeout
         )
+      where
+        createTimeout :: Text -> IO (Async ())
+        createTimeout =
+          Async.async
+          . (Concurrent.threadDelay timeoutMicroseconds >>)
+          . emitIO gatewayQueue
+          . GatewayDeleteTimeout
+
+        timeoutMicroseconds :: Int
+        timeoutMicroseconds =
+          nominalToMicroseconds gatewayTimeoutLength
+
+        nominalToMicroseconds :: NominalDiffTime -> Int
+        nominalToMicroseconds =
+          floor . (1e6 *) . Time.nominalDiffTimeToSeconds
 
     GatewayAddTimeout clientId timeout ->
       ( Gateway.addTimeout clientId timeout gateway
-      , noAction
+      , logInfo context $ "Token sent to client #" <> clientId
       )
 
     GatewayDeleteTimeout clientId ->
       ( Gateway.deleteTimeout clientId gateway
-      , noAction
+      , logWarning context $ "Timing out client #" <> clientId
       )
 
     GatewayAuthenticate response connection wsQueue ->
@@ -76,6 +95,8 @@ gatewayHandler
               ( newGateway
               , do
                   Async.cancel timeout
+
+                  logInfo context $ "Starting client process for client #" <> clientId
 
                   clientQueue <- newQueueIO
 
@@ -92,31 +113,22 @@ gatewayHandler
 
             _ ->
               ( gateway
-              , errorToWS wsQueue AuthIdentityInvalid
+              , errorToWS AuthIdentityInvalid
               )
 
         _ ->
           ( gateway
-          , errorToWS wsQueue AuthFormatInvalid
+          , errorToWS AuthFormatInvalid
           )
-  where
-    createTimeout :: Text -> IO (Async ())
-    createTimeout =
-      Async.async
-      . (Concurrent.threadDelay timeoutMicroseconds >>)
-      . emitIO gatewayQueue
-      . GatewayDeleteTimeout
+      where
+        errorToWS :: Error -> IO ()
+        errorToWS err = do
+          logWarning context $ Text.unlines
+            [ "Rejecting client"
+            , "Reason: " <> showt err
+            ]
 
-    timeoutMicroseconds :: Int
-    timeoutMicroseconds =
-      nominalToMicroseconds gatewayTimeoutLength
-
-    nominalToMicroseconds :: NominalDiffTime -> Int
-    nominalToMicroseconds =
-      floor . (1e6 *) . Time.nominalDiffTimeToSeconds
-
-    errorToWS :: TBQueue (Either Error (EventQueue Client)) -> Error -> IO ()
-    errorToWS wsQueue = STM.atomically . STM.writeTBQueue wsQueue . Left
+          STM.atomically $ STM.writeTBQueue wsQueue (Left err)
 
 
 --------------------------------------------------------------------------------
@@ -264,7 +276,7 @@ roomHandler Context { contextLobbyQueue = lobbyQueue } room = \case
 
 --------------------------------------------------------------------------------
 clientHandler :: Context -> Handler Client
-clientHandler Context { contextLobbyQueue = lobbyQueue } client@Client { clientConnection, clientRoomQueue } = \case
+clientHandler context@Context { contextLobbyQueue = lobbyQueue } client@Client { clientConnection, clientId, clientRoomQueue } = \case
   ClientMessageSend message ->
     ( client
     , toConnection clientConnection message
@@ -282,16 +294,22 @@ clientHandler Context { contextLobbyQueue = lobbyQueue } client@Client { clientC
 
   ClientDisconnect ->
     ( client
-    , let
-        toEmit =
-          case clientRoomQueue of
-            Just roomQueue ->
-              emitIO roomQueue . RoomPlayerLeave
+    , do
+        logInfo context $ Text.unlines
+          [ "Client #" <> clientId <> " disconnected"
+          , "Ending client process..."
+          ]
 
-            _ ->
-              emitIO lobbyQueue . LobbyClientLeave
-      in
-        toEmit client >> exitSuccess
+        let toEmit =
+              case clientRoomQueue of
+                Just roomQueue ->
+                  emitIO roomQueue . RoomPlayerLeave
+
+                _ ->
+                  emitIO lobbyQueue . LobbyClientLeave
+
+        toEmit client
+        exitSuccess
     )
 
   ClientMessageReceive received ->

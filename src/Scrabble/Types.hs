@@ -23,6 +23,7 @@ import           Network.WebSockets       (Connection)
 import           Numeric.Natural          (Natural)
 import           System.Random            (StdGen)
 import           Text.Read                (readMaybe)
+import           TextShow                 (FromStringShow (..), TextShow (..))
 import           Web.JWT                  (Signer (..))
 
 import qualified Control.Arrow            as Arrow
@@ -422,7 +423,12 @@ data Error
   | RoomInGame
   | RoomHasPlayer
   | PlayerNameAlreadySet
-  deriving Generic
+  deriving (Generic, Show)
+
+
+--------------------------------------------------------------------------------
+instance TextShow Error where
+  showb = showb . FromStringShow
 
 
 --------------------------------------------------------------------------------

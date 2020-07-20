@@ -63,8 +63,13 @@ main = do
 
   let lobby = Lobby.new lobbyQueue
 
+  logOnThread LogInfo "Starting logger..."
   Async.async $ Log.runLogger context
+
+  logOnThread LogInfo "Starting gateway..."
   Async.async $ processQueue (gatewayHandler context) gatewayQueue gateway
+
+  logOnThread LogInfo "Starting lobby..."
   Async.async $ processQueue (lobbyHandler context) lobbyQueue lobby
 
   let rqApp = simpleCors $ Request.app gatewayQueue
@@ -72,8 +77,7 @@ main = do
 
   port <- fromMaybe configPort <$> readCustomPort
 
-  logInfo context $ "Listening on port " <> showt port
-
+  logOnThread LogInfo $ "Listening on port " <> showt port
   Warp.run port $ websocketsOr WS.defaultConnectionOptions wsApp rqApp
   where
     loadConfig :: IO Config

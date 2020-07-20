@@ -22,12 +22,14 @@ app gatewayQueue pendingConnection = do
   WS.withPingThread connection 30 (pure ()) $ do
     authResponse <- WS.receiveData connection
 
-    gatewayResult <- STM.atomically $ do
-      wsQueue <- STM.newTBQueue 256 -- todo
-      emit gatewayQueue $ GatewayAuthenticate authResponse connection wsQueue
-      STM.readTBQueue wsQueue
+    authQueue <- STM.atomically $ do
+      queue <- STM.newTBQueue 256 -- todo
+      emit gatewayQueue $ GatewayAuthenticate authResponse connection queue
+      pure queue
 
-    case gatewayResult of
+    authResult <- STM.atomically $ STM.readTBQueue authQueue
+
+    case authResult of
       Left err ->
         closeConnection connection err
 

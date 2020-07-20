@@ -59,7 +59,7 @@ createClientId gateway@Gateway { gatewayStdGen } =
 
     createId :: RandomGen g => g -> ( Text, g )
     createId =
-      Bifunctor.first (("client-" <>) . Text.pack) . randomRSequence ( '0', '9' ) 10
+      Bifunctor.first Text.pack . randomRSequence ( '0', '9' ) 10
 
 
 --------------------------------------------------------------------------------
