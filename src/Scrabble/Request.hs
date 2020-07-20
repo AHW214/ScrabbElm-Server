@@ -12,7 +12,7 @@ import           Network.Wai               (Application, requestMethod,
                                             responseLBS)
 
 import           Scrabble.Types            (Event (..), EventQueue, Gateway,
-                                            Model (..))
+                                            Talk (..))
 
 import qualified Control.Concurrent.STM    as STM
 import qualified Data.Text.Lazy            as Text

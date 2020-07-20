@@ -34,7 +34,7 @@ instance FromJSON Config where
   parseJSON = JSON.withObject "Config" $ \v -> Config
     <$> v .:  "configAuthSecret"
     <*> v .:? "configLogLevel"       .!= configLogLevel placeholder
-    <*> v .:  "configPendingTimeout"
+    <*> v .:  "configTimeoutLength"
     <*> v .:? "configPort"           .!= configPort placeholder
 
 

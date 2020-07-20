@@ -7,18 +7,21 @@ module Scrabble.Log
 
 
 --------------------------------------------------------------------------------
-import           Control.Monad          (forever, (<=<))
-import           Data.Text              (Text)
-import           TextShow               (TextShow (..))
+import           Control.Monad  (forever, (<=<))
+import           Data.Text      (Text)
+import           TextShow       (FromStringShow (..), TextShow (..))
 
-import           Scrabble.Types         (Context (..), Log (..), LogLevel (..))
+import           Scrabble.Types (Context (..), Log (..), LogLevel (..),
+                                 Talk (..))
 
-import qualified Control.Concurrent.STM as STM
-import qualified Data.Text.IO           as Text
+import qualified Data.Text.IO   as Text
+import qualified Data.Time      as Time
 
 
 --------------------------------------------------------------------------------
 class Monad m => Logger m where
+  logOnThread :: LogLevel -> Text -> m ()
+
   logWhen :: LogLevel -> Context -> Text -> m ()
 
   logError :: Context -> Text -> m ()
@@ -42,9 +45,15 @@ class Monad m => Logger m where
 
 --------------------------------------------------------------------------------
 instance Logger IO where
+  logOnThread level text = do
+    currentTime <- Time.getCurrentTime
+    Text.putStrLn $ showt (FromStringShow currentTime)
+                  <> " |" <> levelToTag level
+                  <> "| " <> text
+
   logWhen level Context { contextLoggerQueue, contextLogLevel } =
     if level >= contextLogLevel then
-      STM.atomically . STM.writeTBQueue contextLoggerQueue . Log level
+      emitIO contextLoggerQueue . Log level
     else
       pure . const ()
 
@@ -82,11 +91,11 @@ runLogger = forever . logQueue
   where
     logQueue :: Context -> IO ()
     logQueue =
-      writeLog <=< STM.atomically . STM.readTBQueue . contextLoggerQueue
+      writeLog <=< receiveIO . contextLoggerQueue
 
     writeLog :: Log -> IO ()
     writeLog (Log level text) =
-      Text.putStrLn $ levelToTag level <> ": " <> text
+      logOnThread level text
 
 
 --------------------------------------------------------------------------------

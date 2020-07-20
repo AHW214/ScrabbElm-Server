@@ -8,7 +8,7 @@ import           Control.Monad          (forever)
 import           Network.WebSockets     (ServerApp)
 
 import           Scrabble.Types         (Communicate (..), Event (..),
-                                         EventQueue, Gateway, Model (..))
+                                         EventQueue, Gateway, Talk (..))
 
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Exception      as Exception

@@ -77,7 +77,7 @@ gatewayHandler
               , do
                   Async.cancel timeout
 
-                  clientQueue <- createQueueIO
+                  clientQueue <- newQueueIO
 
                   let
                     client = Client.new connection clientId clientQueue
@@ -173,7 +173,7 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
             in
               STM.atomically
                 $ emit lobbyQueue . LobbyRoomRun room
-                =<< createQueue
+                =<< newQueue
           else
             errorToClient client RoomCapacityInvalid
 

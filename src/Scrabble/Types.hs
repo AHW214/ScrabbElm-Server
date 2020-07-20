@@ -73,40 +73,40 @@ instance FromJSON LogLevel where
 
 
 --------------------------------------------------------------------------------
------------------------------------- models ------------------------------------
+---------------------------------- concurrency ---------------------------------
 --------------------------------------------------------------------------------
-class Model a where
-  data Event a :: Type
-
+class Talk a where
   queueBound :: QueueBound a
 
-  createQueue :: STM (EventQueue a)
-  createQueue = createQueueWith STM.newTBQueue queueBound
+  newQueue :: STM (TBQueue a)
+  newQueue = STM.newTBQueue bound
+    where
+      (QueueBound bound) = (queueBound :: QueueBound a)
 
-  createQueueIO :: IO (EventQueue a)
-  createQueueIO = createQueueWith STM.newTBQueueIO queueBound
+  emit :: TBQueue a -> a -> STM ()
+  emit = STM.writeTBQueue
 
-  emit :: EventQueue a -> Event a -> STM ()
-  emit (EventQueue queue) = STM.writeTBQueue queue
+  receive :: TBQueue a -> STM a
+  receive = STM.readTBQueue
 
-  emitIO :: EventQueue a -> Event a -> IO ()
+  newQueueIO :: IO (TBQueue a)
+  newQueueIO = STM.atomically newQueue
+
+  emitIO :: TBQueue a -> a -> IO ()
   emitIO queue = STM.atomically . emit queue
 
-  receive :: EventQueue a -> STM (Event a)
-  receive (EventQueue queue) = STM.readTBQueue queue
-
-  receiveIO :: EventQueue a -> IO (Event a)
+  receiveIO :: TBQueue a -> IO a
   receiveIO = STM.atomically . receive
 
 
 --------------------------------------------------------------------------------
-createQueueWith
-  :: Monad m
-  => (Natural -> m (TBQueue (Event a)))
-  -> QueueBound a
-  -> m (EventQueue a)
-createQueueWith newQueue (QueueBound natural) =
-  EventQueue <$> newQueue natural
+instance Model a => Talk (Event a) where
+  queueBound = modelQueueBound
+
+
+--------------------------------------------------------------------------------
+instance Talk Log where
+  queueBound = 4096
 
 
 --------------------------------------------------------------------------------
@@ -115,8 +115,17 @@ newtype QueueBound a = QueueBound Natural
 
 
 --------------------------------------------------------------------------------
-newtype EventQueue a =
-  EventQueue (TBQueue (Event a))
+------------------------------------ models ------------------------------------
+--------------------------------------------------------------------------------
+class Model a where
+  data Event a :: Type
+
+  modelQueueBound :: QueueBound (Event a)
+  modelQueueBound = 256
+
+
+--------------------------------------------------------------------------------
+type EventQueue a = TBQueue (Event a)
 
 
 --------------------------------------------------------------------------------
@@ -137,7 +146,7 @@ instance Model Gateway where
     | GatewayDeleteTimeout Text
     | GatewayAuthenticate  Text Connection (TBQueue (Either Error (EventQueue Client)))
 
-  queueBound = 4096
+  modelQueueBound = 4096
 
 
 --------------------------------------------------------------------------------
@@ -173,7 +182,7 @@ instance Model Lobby where
     | LobbyRoomUpdate  Room
     | LobbyRoomRemove  Room
 
-  queueBound = 4096
+  modelQueueBound = 4096
 
 
 --------------------------------------------------------------------------------
@@ -194,11 +203,9 @@ instance Model Room where
     | RoomPlayerLeave   Client
     | RoomPlayerSetName PlayerSetName Client
 
-  queueBound = 256
-
 
 --------------------------------------------------------------------------------
-instance ToJSON Room where
+instance ToJSON Room
 
 
 --------------------------------------------------------------------------------
@@ -211,7 +218,7 @@ data RoomView = RoomView
 
 
 --------------------------------------------------------------------------------
-instance ToJSON RoomView where
+instance ToJSON RoomView
 
 
 --------------------------------------------------------------------------------
@@ -222,7 +229,7 @@ data Player = Player
 
 
 --------------------------------------------------------------------------------
-instance ToJSON Player where
+instance ToJSON Player
 
 
 --------------------------------------------------------------------------------
@@ -249,11 +256,9 @@ instance Model Client where
     | ClientRoomLeave
     | ClientDisconnect
 
-  queueBound = 256
-
 
 --------------------------------------------------------------------------------
-instance ToJSONKey Client where
+instance ToJSONKey Client
 
 
 --------------------------------------------------------------------------------
@@ -398,7 +403,7 @@ instance Communication Outbound where
 
 
 --------------------------------------------------------------------------------
-instance ToJSON (Message Outbound) where
+instance ToJSON (Message Outbound)
 
 
 --------------------------------------------------------------------------------
@@ -421,4 +426,4 @@ data Error
 
 
 --------------------------------------------------------------------------------
-instance ToJSON Error where
+instance ToJSON Error

@@ -18,7 +18,7 @@ import           Scrabble.Config                (Config (..))
 import           Scrabble.Handler               (gatewayHandler, lobbyHandler,
                                                  processQueue)
 import           Scrabble.Log                   (Logger (..), LogLevel (..))
-import           Scrabble.Types                 (Context (..), Model (..))
+import           Scrabble.Types                 (Context (..), Talk (..))
 
 import qualified Control.Concurrent.Async       as Async
 import qualified Control.Concurrent.STM         as STM
@@ -45,8 +45,8 @@ main = do
     } <- loadConfig
 
   loggerQueue <- STM.newTBQueueIO 256 -- todo
-  gatewayQueue <- createQueueIO
-  lobbyQueue <- createQueueIO
+  gatewayQueue <- newQueueIO
+  lobbyQueue <- newQueueIO
 
   let context = Context
         { contextLobbyQueue  = lobbyQueue
@@ -85,11 +85,11 @@ main = do
               pure config
 
             Left errMsg ->
-              logAs LogError ("Failed to decode config (" <> errMsg <> ")")
+              logOnThread LogError ("Failed to decode config (" <> errMsg <> ")")
               >> exitFailure
 
         _ ->
-          logAs LogWarning "Using placeholder config"
+          logOnThread LogWarning "Using placeholder config"
           >> pure Config.placeholder
 
     readCustomPort :: IO (Maybe Port)
