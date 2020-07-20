@@ -3,30 +3,35 @@
 --------------------------------------------------------------------------------
 
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GADTs         #-}
 {-# LANGUAGE TypeFamilies  #-}
 
 module Scrabble.Types where
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM (STM, TBQueue)
-import           Data.Aeson             (FromJSON, ToJSON (..), ToJSONKey)
-import           Data.Kind              (Type)
-import           Data.Map               (Map)
-import           Data.Set               (Set)
-import           Data.Text              (Text)
-import           GHC.Generics           (Generic)
-import           Network.WebSockets     (Connection)
-import           Text.Read              (readMaybe)
+import           Control.Concurrent.Async (Async)
+import           Control.Concurrent.STM   (STM, TBQueue)
+import           Data.Aeson               (FromJSON (..), ToJSON (..), ToJSONKey)
+import           Data.Kind                (Type)
+import           Data.Map.Strict          (Map)
+import           Data.Set                 (Set)
+import           Data.Text                (Text)
+import           Data.Time                (NominalDiffTime)
+import           GHC.Generics             (Generic)
+import           Network.WebSockets       (Connection)
+import           Numeric.Natural          (Natural)
+import           System.Random            (StdGen)
+import           Text.Read                (readMaybe)
+import           Web.JWT                  (Signer)
 
-import qualified Control.Arrow          as Arrow
-import qualified Control.Concurrent.STM as STM
-import qualified Data.Aeson             as JSON
-import qualified Data.Foldable          as Foldable
-import qualified Data.Map               as Map
-import qualified Data.Text              as Text
-import qualified Network.WebSockets     as WS
+import qualified Control.Arrow            as Arrow
+import qualified Control.Concurrent.STM   as STM
+import qualified Data.Aeson               as JSON
+import qualified Data.Foldable            as Foldable
+import qualified Data.Map.Strict          as Map
+import qualified Data.Text                as Text
+import qualified Network.WebSockets       as WS
+import qualified Web.JWT                  as JWT
 
 
 --------------------------------------------------------------------------------
@@ -73,21 +78,56 @@ instance FromJSON LogLevel where
 class Model a where
   data Event a :: Type
 
+  createQueue :: Natural -> STM (EventQueue a)
+  createQueue = fmap EventQueue . STM.newTBQueue
+
+  createQueueIO :: Natural -> IO (EventQueue a)
+  createQueueIO = fmap EventQueue . STM.newTBQueueIO
+
   emit :: EventQueue a -> Event a -> STM ()
-  emit = STM.writeTBQueue
+  emit (EventQueue queue) = STM.writeTBQueue queue
 
   emitIO :: EventQueue a -> Event a -> IO ()
   emitIO queue = STM.atomically . emit queue
 
   receive :: EventQueue a -> STM (Event a)
-  receive = STM.readTBQueue
+  receive (EventQueue queue) = STM.readTBQueue queue
 
   receiveIO :: EventQueue a -> IO (Event a)
   receiveIO = STM.atomically . receive
 
 
 --------------------------------------------------------------------------------
-type EventQueue a = TBQueue (Event a)
+newtype EventQueue a =
+  EventQueue (TBQueue (Event a))
+
+
+--------------------------------------------------------------------------------
+data Gateway = Gateway
+  { gatewayAuthSecret    :: Secret
+  , gatewayQueue         :: EventQueue Gateway
+  , gatewayStdGen        :: StdGen
+  , gatewayTimeoutLength :: NominalDiffTime
+  , gatewayTimeouts      :: Map Text (Async ())
+  }
+
+
+--------------------------------------------------------------------------------
+instance Model Gateway where
+  data Event Gateway
+    = GatewayCreateJWT     (TBQueue Text)
+    | GatewayAddTimeout    Text (Async ())
+    | GatewayDeleteTimeout Text
+    | GatewayAuthenticate  Connection Text
+
+
+--------------------------------------------------------------------------------
+newtype Secret = Secret Signer
+
+
+--------------------------------------------------------------------------------
+instance FromJSON Secret where
+  parseJSON = fmap (Secret . JWT.hmacSecret) . parseJSON
 
 
 --------------------------------------------------------------------------------
@@ -168,6 +208,7 @@ data Client = Client
   { clientConnection :: Connection
   , clientId         :: Text
   , clientQueue      :: EventQueue Client
+  , clientRoomQueue  :: Maybe (EventQueue Room)
   }
 
 
@@ -216,9 +257,13 @@ class Monad m => Communicate m where
 
   errorToClient :: Client -> Error -> m ()
 
+  toClients :: Foldable t => t Client -> Message Outbound -> m ()
+
   toClient :: Client -> Message Outbound -> m ()
 
-  toClients :: Foldable t => t Client -> Message Outbound -> m ()
+  closeConnection :: Connection -> Error -> m ()
+
+  toConnection :: Connection -> Message Outbound -> m ()
 
 
 --------------------------------------------------------------------------------
@@ -237,11 +282,17 @@ instance Communicate IO where
   errorToClient client =
     toClient client . ErrorOutbound
 
+  toClients clients message =
+    Foldable.traverse_ (flip toClient message) clients -- perform all as STM atomically ?
+
   toClient Client { clientQueue } =
     emitIO clientQueue . ClientMessageSend
 
-  toClients clients message =
-    Foldable.traverse_ (flip toClient message) clients -- perform all as STM atomically ?
+  closeConnection connection =
+    WS.sendClose connection . JSON.encode . ErrorOutbound
+
+  toConnection connection =
+    WS.sendTextData connection . JSON.encode
 
 
 --------------------------------------------------------------------------------
@@ -326,6 +377,8 @@ instance ToJSON (Message Outbound) where
 --------------------------------------------------------------------------------
 data Error
   = MessageInvalid Text
+  | AuthFormatInvalid
+  | AuthIdentityInvalid
   | ClientNotInLobby
   | ClientNotInRoom
   | RoomCapacityInvalid

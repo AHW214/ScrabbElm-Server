@@ -1,5 +1,6 @@
 module Scrabble.Handler
   ( clientHandler
+  , gatewayHandler
   , lobbyHandler
   , processQueue
   , roomHandler
@@ -7,26 +8,112 @@ module Scrabble.Handler
 
 
 --------------------------------------------------------------------------------
+import           Control.Concurrent.Async (Async)
+import           Data.Text                (Text)
+import           Data.Time                (NominalDiffTime)
 import           System.Exit              (exitSuccess)
 
 import           Scrabble.Types
 
+import qualified Control.Concurrent       as Concurrent
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM   as STM
-import qualified Data.Aeson               as JSON
-import qualified Network.WebSockets       as WS
+import qualified Data.Time                as Time
 
+import qualified Scrabble.Client          as Client
+import qualified Scrabble.Gateway         as Gateway
 import qualified Scrabble.Lobby           as Lobby
 import qualified Scrabble.Room            as Room
 
 
 --------------------------------------------------------------------------------
-type Handler state event =
-  state -> event -> ( state, IO () )
+type Handler model =
+  model -> Event model -> ( model, IO () )
 
 
 --------------------------------------------------------------------------------
-lobbyHandler :: Context -> Handler Lobby (Event Lobby)
+gatewayHandler :: Context -> Handler Gateway
+gatewayHandler
+  context@Context
+    { contextLobbyQueue = lobbyQueue
+    }
+  gateway@Gateway
+    { gatewayQueue
+    , gatewayTimeoutLength
+    }
+  = \case
+    GatewayCreateJWT jwtQueue ->
+      let
+        ( newGateway, clientId ) =
+          Gateway.createClientId gateway
+      in
+        ( newGateway
+        , do
+            jwt <- Gateway.createClientJWT clientId gateway
+            timeout <- createTimeout clientId
+
+            STM.atomically $ do
+              STM.writeTBQueue jwtQueue jwt
+              emit gatewayQueue $ GatewayAddTimeout clientId timeout
+        )
+
+    GatewayAddTimeout clientId timeout ->
+      ( Gateway.addTimeout clientId timeout gateway
+      , noAction
+      )
+
+    GatewayDeleteTimeout clientId ->
+      ( Gateway.deleteTimeout clientId gateway
+      , noAction
+      )
+
+    GatewayAuthenticate connection response ->
+      case Gateway.verifyClientJWT gateway response of
+        Just clientId ->
+          case Gateway.removeTimeout clientId gateway of
+            Just ( newGateway, timeout ) ->
+              ( newGateway
+              , do
+                  Async.cancel timeout
+
+                  clientQueue <- createQueueIO 256 -- todo
+
+                  let
+                    client = Client.new connection clientId clientQueue
+                    handler = clientHandler context
+
+                  Async.async $ processQueue handler clientQueue client
+                  emitIO lobbyQueue $ LobbyClientJoin client
+              )
+
+            _ ->
+              ( gateway
+              , closeConnection connection AuthIdentityInvalid
+              )
+
+        _ ->
+          ( gateway
+          , closeConnection connection AuthFormatInvalid
+          )
+  where
+    createTimeout :: Text -> IO (Async ())
+    createTimeout =
+      Async.async
+      . (Concurrent.threadDelay timeoutMicroseconds >>)
+      . emitIO gatewayQueue
+      . GatewayDeleteTimeout
+
+    timeoutMicroseconds :: Int
+    timeoutMicroseconds =
+      nominalToMicroseconds gatewayTimeoutLength
+
+    nominalToMicroseconds :: NominalDiffTime -> Int
+    nominalToMicroseconds =
+      floor . (1e6 *) . Time.nominalDiffTimeToSeconds
+
+
+--------------------------------------------------------------------------------
+lobbyHandler :: Context -> Handler Lobby
 lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
   LobbyClientJoin client ->
     let
@@ -79,7 +166,7 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
             in
               STM.atomically
                 $ emit lobbyQueue . LobbyRoomRun room
-                =<< STM.newTBQueue 256 -- todo
+                =<< createQueue 256 -- todo
           else
             errorToClient client RoomCapacityInvalid
 
@@ -106,7 +193,7 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
 
 
 --------------------------------------------------------------------------------
-roomHandler :: Context -> Handler Room (Event Room)
+roomHandler :: Context -> Handler Room
 roomHandler Context { contextLobbyQueue = lobbyQueue } room = \case
   RoomPlayerJoin client@Client { clientQueue } roomQueue ->
     let
@@ -169,28 +256,28 @@ roomHandler Context { contextLobbyQueue = lobbyQueue } room = \case
 
 
 --------------------------------------------------------------------------------
-clientHandler :: Context -> Handler ( Client, Maybe (EventQueue Room) ) (Event Client)
-clientHandler Context { contextLobbyQueue = lobbyQueue } state@( client@Client { clientConnection }, maybeRoomQueue ) = \case
+clientHandler :: Context -> Handler Client
+clientHandler Context { contextLobbyQueue = lobbyQueue } client@Client { clientConnection, clientRoomQueue } = \case
   ClientMessageSend message ->
-    ( state
-    , WS.sendTextData clientConnection $ JSON.encode message
+    ( client
+    , toConnection clientConnection message
     )
 
   ClientRoomJoin room roomQueue ->
-    ( ( client, Just roomQueue )
+    ( Client.joinRoom roomQueue client
     , toClient client $ RoomJoinOutbound room
     )
 
   ClientRoomLeave ->
-    ( ( client, Nothing )
+    ( Client.leaveRoom client
     , toClient client RoomLeaveOutbound
     )
 
   ClientDisconnect ->
-    ( state
+    ( client
     , let
         toEmit =
-          case maybeRoomQueue of
+          case clientRoomQueue of
             Just roomQueue ->
               emitIO roomQueue . RoomPlayerLeave
 
@@ -201,7 +288,7 @@ clientHandler Context { contextLobbyQueue = lobbyQueue } state@( client@Client {
     )
 
   ClientMessageReceive received ->
-    ( state
+    ( client
     , case received of
         Left decodeError ->
           errorToClient client $ MessageInvalid decodeError
@@ -209,7 +296,7 @@ clientHandler Context { contextLobbyQueue = lobbyQueue } state@( client@Client {
         Right message ->
           let
             withClient =
-              case maybeRoomQueue of
+              case clientRoomQueue of
                 Just roomQueue ->
                   whenInRoom roomQueue message
 
@@ -248,13 +335,7 @@ noAction = pure ()
 
 
 --------------------------------------------------------------------------------
-processQueue
-  :: forall a
-   . Model a
-  => Handler a (Event a)
-  -> EventQueue a
-  -> a
-  -> IO ()
+processQueue :: forall a. Model a => Handler a -> EventQueue a -> a -> IO ()
 processQueue handler queue = loop
   where
     loop :: a -> IO ()
