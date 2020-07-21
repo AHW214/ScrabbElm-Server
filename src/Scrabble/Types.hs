@@ -11,7 +11,8 @@ module Scrabble.Types where
 --------------------------------------------------------------------------------
 import           Control.Concurrent.Async (Async)
 import           Control.Concurrent.STM   (STM, TBQueue)
-import           Data.Aeson               (FromJSON (..), ToJSON (..), ToJSONKey)
+import           Data.Aeson               (FromJSON (..), Options (..),
+                                           ToJSON (..), ToJSONKey)
 import           Data.Kind                (Type)
 import           Data.Map.Strict          (Map)
 import           Data.Set                 (Set)
@@ -29,8 +30,11 @@ import           Web.JWT                  (Signer (..))
 import qualified Control.Arrow            as Arrow
 import qualified Control.Concurrent.STM   as STM
 import qualified Data.Aeson               as JSON
+import qualified Data.Char                as Char
 import qualified Data.Foldable            as Foldable
+import qualified Data.List                as List
 import qualified Data.Map.Strict          as Map
+import qualified Data.Maybe               as Maybe
 import qualified Data.Text                as Text
 import qualified Network.WebSockets       as WS
 
@@ -311,7 +315,7 @@ instance Communicate IO where
     toClients . Map.keys . roomPlayers
 
   errorToClient client =
-    toClient client . ErrorOutbound
+    toClient client . OutboundError
 
   toClients clients message =
     Foldable.traverse_ (flip toClient message) clients -- perform all as STM atomically ?
@@ -320,7 +324,7 @@ instance Communicate IO where
     emitIO clientQueue . ClientMessageSend
 
   closeConnection connection =
-    WS.sendClose connection . JSON.encode . ErrorOutbound
+    WS.sendClose connection . JSON.encode . OutboundError
 
   toConnection connection =
     WS.sendTextData connection . JSON.encode
@@ -342,22 +346,23 @@ data Inbound = Inbound
 --------------------------------------------------------------------------------
 instance Communication Inbound where
   data Message Inbound
-    = RoomMakeInbound      RoomMake
-    | RoomJoinInbound      RoomJoin
-    | RoomLeaveInbound
-    | PlayerSetNameInbound PlayerSetName
-    deriving Generic
+    = InboundRoomMake      RoomMake
+    | InboundRoomJoin      RoomJoin
+    | InboundRoomLeave
+    | InboundPlayerSetName PlayerSetName
+    deriving (Generic, Show)
 
 
 --------------------------------------------------------------------------------
-instance FromJSON (Message Inbound)
+instance FromJSON (Message Inbound) where
+  parseJSON = JSON.genericParseJSON $ messageEncodingOptions "Inbound"
 
 
 --------------------------------------------------------------------------------
 data RoomMake = RM
   { rmRoomCapacity :: Int
   , rmRoomName     :: Text
-  } deriving Generic
+  } deriving (Generic, Show)
 
 
 --------------------------------------------------------------------------------
@@ -367,21 +372,32 @@ instance FromJSON RoomMake
 --------------------------------------------------------------------------------
 data RoomJoin = RJ
   { rjRoomName :: Text
-  } deriving Generic
+  } deriving (Generic, Show)
 
 
 --------------------------------------------------------------------------------
-instance FromJSON RoomJoin
+instance FromJSON RoomJoin where
+  parseJSON = JSON.genericParseJSON inboundParameterEncodingOptions
 
 
 --------------------------------------------------------------------------------
 data PlayerSetName = PSN
   { psnPlayerName :: Text
-  } deriving Generic
+  } deriving (Generic, Show)
 
 
 --------------------------------------------------------------------------------
 instance FromJSON PlayerSetName
+
+
+--------------------------------------------------------------------------------
+inboundParameterEncodingOptions :: JSON.Options
+inboundParameterEncodingOptions = JSON.defaultOptions
+  { fieldLabelModifier = uncapitalize . removeLowercasePrefix
+  }
+  where
+    removeLowercasePrefix :: String -> String
+    removeLowercasePrefix = List.dropWhile Char.isLower
 
 
 --------------------------------------------------------------------------------
@@ -391,20 +407,41 @@ data Outbound = Outbound
 --------------------------------------------------------------------------------
 instance Communication Outbound where
   data Message Outbound
-    = RoomListOutbound           [ RoomView ]
-    | RoomUpdateOutbound         RoomView
-    | RoomRemoveOutbound         Text
-    | RoomJoinOutbound           Room
-    | RoomLeaveOutbound
-    | PlayerJoinOutbound         Text
-    | PlayerLeaveOutbound        Text
-    | PendingClientLeaveOutbound
-    | ErrorOutbound              Error
+    = OutboundRoomList           [ RoomView ]
+    | OutboundRoomUpdate         RoomView
+    | OutboundRoomRemove         Text
+    | OutboundRoomJoin           Room
+    | OutboundRoomLeave
+    | OutboundPlayerJoin         Text
+    | OutboundPlayerLeave        Text
+    | OutboundPendingClientLeave
+    | OutboundError              Error
     deriving Generic
 
 
 --------------------------------------------------------------------------------
-instance ToJSON (Message Outbound)
+instance ToJSON (Message Outbound) where
+  toJSON = JSON.genericToJSON $ messageEncodingOptions "Outbound"
+
+
+--------------------------------------------------------------------------------
+messageEncodingOptions :: String -> JSON.Options
+messageEncodingOptions prefix = JSON.defaultOptions
+  { constructorTagModifier = uncapitalize . removePrefix
+  }
+  where
+    removePrefix :: String -> String
+    removePrefix = Maybe.fromMaybe "" . List.stripPrefix prefix
+
+
+--------------------------------------------------------------------------------
+uncapitalize :: String -> String
+uncapitalize = mapHead Char.toLower
+  where
+    mapHead :: (a -> a) -> [ a ] -> [ a ]
+    mapHead f = \case
+      x:xs -> f x : xs
+      _    -> []
 
 
 --------------------------------------------------------------------------------

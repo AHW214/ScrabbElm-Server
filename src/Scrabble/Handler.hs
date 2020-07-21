@@ -139,7 +139,7 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
       roomViews = Lobby.listRoomViews lobby
     in
       ( Lobby.addClient client lobby
-      , toClient client $ RoomListOutbound roomViews
+      , toClient client $ OutboundRoomList roomViews
       )
 
   LobbyClientLeave client ->
@@ -167,12 +167,12 @@ lobbyHandler context@Context { contextLobbyQueue = lobbyQueue } lobby = \case
       roomView = Room.toView room
     in
       ( Lobby.updateRoomView roomView lobby
-      , broadcastLobby lobby $ RoomUpdateOutbound roomView
+      , broadcastLobby lobby $ OutboundRoomUpdate roomView
       )
 
   LobbyRoomRemove room@Room { roomName } ->
     ( Lobby.removeRoom room lobby
-    , broadcastLobby lobby $ RoomRemoveOutbound roomName
+    , broadcastLobby lobby $ OutboundRoomRemove roomName
     )
 
   LobbyRoomMake (RM { rmRoomCapacity = capacity, rmRoomName = roomName }) client ->
@@ -229,10 +229,10 @@ roomHandler Context { contextLobbyQueue = lobbyQueue } room = \case
     let ( removeClient, roomEvent ) =
           case Room.getPlayer client room of
             Just Player { playerName } ->
-              ( Room.removePlayer, PlayerLeaveOutbound playerName )
+              ( Room.removePlayer, OutboundPlayerLeave playerName )
 
             _ ->
-              ( Room.removePendingClient, PendingClientLeaveOutbound )
+              ( Room.removePendingClient, OutboundPendingClientLeave )
 
         newRoom =
           removeClient client room
@@ -265,7 +265,7 @@ roomHandler Context { contextLobbyQueue = lobbyQueue } room = \case
       case Room.registerPendingClient client playerName room of
         Just newRoom ->
           ( newRoom
-          , broadcastRoom room $ PlayerJoinOutbound playerName
+          , broadcastRoom room $ OutboundPlayerJoin playerName
           )
 
         _ ->
@@ -284,12 +284,12 @@ clientHandler context@Context { contextLobbyQueue = lobbyQueue } client@Client {
 
   ClientRoomJoin room roomQueue ->
     ( Client.joinRoom roomQueue client
-    , toClient client $ RoomJoinOutbound room
+    , toClient client $ OutboundRoomJoin room
     )
 
   ClientRoomLeave ->
     ( Client.leaveRoom client
-    , toClient client RoomLeaveOutbound
+    , toClient client OutboundRoomLeave
     )
 
   ClientDisconnect ->
@@ -333,10 +333,10 @@ clientHandler context@Context { contextLobbyQueue = lobbyQueue } client@Client {
   where
     whenInLobby :: Message Inbound -> Client -> IO ()
     whenInLobby = \case
-      RoomMakeInbound roomMake ->
+      InboundRoomMake roomMake ->
         emitIO lobbyQueue . LobbyRoomMake roomMake
 
-      RoomJoinInbound roomJoin ->
+      InboundRoomJoin roomJoin ->
         emitIO lobbyQueue . LobbyRoomJoin roomJoin
 
       _ ->
@@ -344,10 +344,10 @@ clientHandler context@Context { contextLobbyQueue = lobbyQueue } client@Client {
 
     whenInRoom :: EventQueue Room -> Message Inbound -> Client -> IO ()
     whenInRoom roomQueue = \case
-      RoomLeaveInbound ->
+      InboundRoomLeave ->
         emitIO roomQueue . RoomPlayerLeave
 
-      PlayerSetNameInbound playerSetName ->
+      InboundPlayerSetName playerSetName ->
         emitIO roomQueue . RoomPlayerSetName playerSetName
 
       _ ->
