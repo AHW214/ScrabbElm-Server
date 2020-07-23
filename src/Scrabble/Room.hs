@@ -1,66 +1,38 @@
 module Scrabble.Room
   ( Room (..)
-  , RoomPreview (..)
-  , addPlayer
+  , RoomView (..)
+  , addPendingClient
   , getClients
   , getPlayer
-  , hasPlayerTag
+  , hasPlayer
+  , hasPlayerName
+  , isClientOwner
   , inGame
   , isEmpty
   , isFull
-  , isPlayerOwner
   , maxCapacity
   , new
-  , removeClient
+  , registerPendingClient
+  , removePendingClient
   , removePlayer
   , switchTurn
-  , toPreview
+  , toView
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson            (ToJSON, (.=))
-import           Data.Map.Strict       (Map)
-import           Data.Text             (Text)
+import           Data.Text       (Text)
 
-import           Scrabble.Client       (Client (..))
-import           Scrabble.Player       (Player (..))
-import           Scrabble.Room.Preview (RoomPreview (..))
+import           Scrabble.Client (Client (..))
+import           Scrabble.Player (Player (..))
+import           Scrabble.Types  (Room (..), RoomView (..))
 
-import qualified Data.Aeson            as JSON
-import qualified Data.List             as List
-import qualified Data.Map.Strict       as Map
-import qualified Data.Maybe            as Maybe
+import qualified Data.List       as List
+import qualified Data.Map.Strict as Map
+import qualified Data.Maybe      as Maybe
+import qualified Data.Set        as Set
 
-
---------------------------------------------------------------------------------
-data Room = Room
-  { roomCapacity :: Int
-  , roomName     :: Text
-  , roomOwner    :: Player
-  , roomPlayers  :: Map Client Player
-  , roomPlaying  :: Maybe Player
-  }
-
-
---------------------------------------------------------------------------------
-instance ToJSON Room where
-  toJSON Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
-    JSON.object
-      [ "roomCapacity" .= roomCapacity
-      , "roomName"     .= roomName
-      , "roomOwner"    .= roomOwner
-      , "roomPlayers"  .= Map.elems roomPlayers
-      , "roomPlaying"  .= roomPlaying
-      ]
-
-  toEncoding Room { roomCapacity, roomName, roomOwner, roomPlayers, roomPlaying } =
-    JSON.pairs
-      $  "roomCapacity" .= roomCapacity
-      <> "roomName"     .= roomName
-      <> "roomOwner"    .= roomOwner
-      <> "roomPlayers"  .= Map.elems roomPlayers
-      <> "roomPlaying"  .= roomPlaying
+import qualified Scrabble.Player as Player
 
 
 --------------------------------------------------------------------------------
@@ -69,23 +41,24 @@ maxCapacity = 4
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Player -> Room
+new :: Text -> Int -> Client -> Room
 new name capacity owner = Room
-  { roomCapacity = capacity
-  , roomName     = name
-  , roomOwner    = owner
-  , roomPlayers  = Map.empty
-  , roomPlaying  = Nothing
+  { roomCapacity       = capacity
+  , roomName           = name
+  , roomOwner          = owner
+  , roomPendingClients = Set.empty
+  , roomPlayers        = Map.empty
+  , roomPlaying        = Nothing
   }
 
 
 --------------------------------------------------------------------------------
-toPreview :: Room -> RoomPreview
-toPreview room@Room { roomCapacity, roomName } = RoomPreview
-  { roomPreviewCapacity  = roomCapacity
-  , roomPreviewInGame    = inGame room
-  , roomPreviewName      = roomName
-  , roomPreviewOccupancy = occupancy room
+toView :: Room -> RoomView
+toView room@Room { roomCapacity, roomName } = RoomView
+  { roomViewCapacity  = roomCapacity
+  , roomViewInGame    = inGame room
+  , roomViewName      = roomName
+  , roomViewOccupancy = occupancy room
   }
 
 
@@ -96,7 +69,8 @@ inGame = Maybe.isJust . roomPlaying
 
 --------------------------------------------------------------------------------
 occupancy :: Room -> Int
-occupancy = length . roomPlayers
+occupancy Room { roomPendingClients, roomPlayers } =
+  length roomPendingClients + length roomPlayers
 
 
 --------------------------------------------------------------------------------
@@ -117,25 +91,49 @@ getPlayer client = Map.lookup client . roomPlayers
 
 
 --------------------------------------------------------------------------------
+hasPlayer :: Client -> Room -> Bool
+hasPlayer client = Map.member client . roomPlayers
+
+
+--------------------------------------------------------------------------------
+hasPendingClient :: Client -> Room -> Bool
+hasPendingClient client = Set.member client . roomPendingClients
+
+
+--------------------------------------------------------------------------------
 getClients :: Room -> [ Client ]
 getClients = Map.keys . roomPlayers
 
 
 --------------------------------------------------------------------------------
-hasPlayerTag :: Text -> Room -> Bool
-hasPlayerTag tag =
-  List.any ((tag ==) . playerName) . Map.elems . roomPlayers
+hasPlayerName :: Text -> Room -> Bool
+hasPlayerName name =
+  List.any (Player.hasName name) . Map.elems . roomPlayers
 
 
 --------------------------------------------------------------------------------
-addPlayer :: Player -> Room -> Room
-addPlayer player@Player { playerClient } room@Room { roomPlayers } =
-  room { roomPlayers = Map.insert playerClient player roomPlayers }
+registerPendingClient :: Client -> Text -> Room -> Maybe Room
+registerPendingClient client playerName room =
+  if hasPendingClient client room then
+    Just $ addPlayer client playerName
+         $ removePendingClient client room
+  else
+    Nothing
 
 
 --------------------------------------------------------------------------------
-removePlayer :: Player -> Room -> Maybe Room
-removePlayer = removeClient . playerClient
+addPlayer :: Client -> Text -> Room -> Room
+addPlayer client playerName room@Room { roomPlayers } =
+  room { roomPlayers = Map.insert client player roomPlayers }
+  where
+    player :: Player
+    player = Player.new playerName
+
+
+--------------------------------------------------------------------------------
+addPendingClient :: Client -> Room -> Room
+addPendingClient client room@Room { roomPendingClients } =
+  room { roomPendingClients = Set.insert client roomPendingClients }
 
 
 --------------------------------------------------------------------------------
@@ -145,17 +143,17 @@ switchTurn player room =
 
 
 --------------------------------------------------------------------------------
-isPlayerOwner :: Player -> Room -> Bool
-isPlayerOwner player = (player ==) . roomOwner
+isClientOwner :: Client -> Room -> Bool
+isClientOwner player = (player ==) . roomOwner
 
 
 --------------------------------------------------------------------------------
-removeClient :: Client -> Room -> Maybe Room
-removeClient client room@Room { roomPlayers } =
-  if null players then
-    Nothing
-  else
-    Just $ room { roomPlayers = players }
-  where
-    players =
-      Map.delete client roomPlayers
+removePlayer :: Client -> Room -> Room
+removePlayer client room@Room { roomPlayers } =
+  room { roomPlayers = Map.delete client roomPlayers }
+
+
+--------------------------------------------------------------------------------
+removePendingClient :: Client -> Room -> Room
+removePendingClient client room@Room { roomPendingClients } =
+  room { roomPendingClients = Set.delete client roomPendingClients }

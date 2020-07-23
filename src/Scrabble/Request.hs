@@ -4,29 +4,24 @@ module Scrabble.Request
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent        (MVar, ThreadId, forkIO, modifyMVar,
-                                            modifyMVar_, threadDelay)
 import           Data.ByteString.Lazy      (ByteString)
 import           Data.Text                 (Text)
-import           Data.Time.Clock           (NominalDiffTime)
 import           Network.HTTP.Types        (status200, status501)
 import           Network.HTTP.Types.Header (hCacheControl, hContentType)
 import           Network.Wai               (Application, requestMethod,
                                             responseLBS)
 
-import           Scrabble.Server           (Server, PendingParams (..))
+import           Scrabble.Types            (Event (..), EventQueue, Gateway,
+                                            Talk (..))
 
+import qualified Control.Concurrent.STM    as STM
 import qualified Data.Text.Lazy            as Text
 import qualified Data.Text.Lazy.Encoding   as Text
-import qualified Data.Time.Clock           as Time
-
-import qualified Scrabble.Authentication   as Auth
-import qualified Scrabble.Server           as Server
 
 
 --------------------------------------------------------------------------------
-app :: MVar Server -> Application
-app mServer request response = do
+app :: EventQueue Gateway -> Application
+app gatewayQueue request respond = do
   ( status, headers, text ) <-
     case requestMethod request of
       "GET" -> do
@@ -35,24 +30,12 @@ app mServer request response = do
               , ( hCacheControl, "no-cache" )
               ]
 
-        pendingClientTicket <- Auth.createTicket 10
+        jwtQueue <- STM.atomically $ do
+            queue <- STM.newTBQueue 256 -- todo
+            emit gatewayQueue $ GatewayCreateJWT queue
+            pure queue
 
-        PendingParams
-          { pendingAuthSecret
-          , pendingClientId
-          , pendingTimeout
-          } <- modifyMVar mServer $
-                pure . Server.createPendingClient pendingClientTicket
-
-        jwt <- Auth.createClientJWT
-                pendingTimeout
-                pendingAuthSecret
-                pendingClientTicket
-                pendingClientId
-
-        let microseconds = nominalToMicroseconds pendingTimeout
-
-        timeOutPendingClient microseconds pendingClientId mServer
+        jwt <- STM.atomically $ STM.readTBQueue jwtQueue
 
         pure ( status200, getHeaders, txtToBsl jwt )
 
@@ -60,19 +43,7 @@ app mServer request response = do
         let unsupportedHeaders = [ ( hContentType, "text/plain" ) ] in
         pure ( status501, unsupportedHeaders, "Operation unsupported" )
 
-  response $ responseLBS status headers text
-
-
---------------------------------------------------------------------------------
-timeOutPendingClient :: Int -> Text -> MVar Server -> IO ThreadId
-timeOutPendingClient timeout clientId mServer =
-  forkIO $ threadDelay timeout
-    >> modifyMVar_ mServer (pure . Server.removePendingClient clientId)
-
-
---------------------------------------------------------------------------------
-nominalToMicroseconds :: NominalDiffTime -> Int
-nominalToMicroseconds = floor . (1e6 *) . Time.nominalDiffTimeToSeconds
+  respond $ responseLBS status headers text
 
 
 --------------------------------------------------------------------------------

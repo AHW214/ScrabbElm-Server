@@ -1,6 +1,9 @@
 module Scrabble.Client
   ( Client (..)
+  , joinRoom
+  , leaveRoom
   , new
+  , send
   ) where
 
 
@@ -8,26 +11,34 @@ module Scrabble.Client
 import           Data.Text          (Text)
 import           Network.WebSockets (Connection)
 
+import           Scrabble.Types     (Client (..), EventQueue, Room)
+
+import qualified Network.WebSockets as WS
+
 
 --------------------------------------------------------------------------------
-data Client = Client
-  { clientConnection :: Connection
-  , clientId :: Text
+send :: Client -> Text -> IO ()    -- todo: custom message type
+send Client { clientConnection } =
+  WS.sendTextData clientConnection
+
+
+--------------------------------------------------------------------------------
+joinRoom :: EventQueue Room -> Client -> Client
+joinRoom roomQueue client =
+  client { clientRoomQueue = Just roomQueue }
+
+
+--------------------------------------------------------------------------------
+leaveRoom :: Client -> Client
+leaveRoom client =
+  client { clientRoomQueue = Nothing }
+
+
+--------------------------------------------------------------------------------
+new :: Connection -> Text -> EventQueue Client -> Client
+new connection clientId queue = Client
+  { clientConnection = connection
+  , clientId         = clientId
+  , clientQueue      = queue
+  , clientRoomQueue  = Nothing
   }
-
-
---------------------------------------------------------------------------------
-instance Eq Client where
- Client { clientId = id1 } == Client { clientId = id2 } =
-   id1 == id2
-
-
---------------------------------------------------------------------------------
-instance Ord Client where
-  compare Client { clientId = id1 } Client { clientId = id2 } =
-    compare id1 id2
-
-
---------------------------------------------------------------------------------
-new :: Connection -> Text -> Client
-new = Client

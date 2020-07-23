@@ -13,12 +13,14 @@ description: Please see the README on GitHub at <https://github.com/AHW214/Scrab
 
 dependencies:
 - aeson
+- async
 - base >= 4.7 && < 5
 - bytestring
 - containers
 - http-types
 - jwt
 - random
+- stm
 - text
 - text-show
 - time

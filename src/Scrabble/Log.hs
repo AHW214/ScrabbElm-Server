@@ -1,66 +1,59 @@
 module Scrabble.Log
   ( Log (..)
-  , Logger
+  , Logger (..)
   , LogLevel (..)
-  , Printer
+  , runLogger
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Text          (Text)
-import           TextShow           (TextShow (..))
+import           Control.Monad  (forever, (<=<))
+import           Data.Text      (Text)
+import           TextShow       (FromStringShow (..), TextShow (..))
 
-import           Scrabble.Log.Level (LogLevel (..))
-import           Scrabble.Server    (Server (..))
+import           Scrabble.Types (Context (..), Log (..), LogLevel (..),
+                                 Talk (..))
 
-import qualified Data.Text.IO       as Text
-
-import qualified Scrabble.Log.Level as LogLevel
-
-
---------------------------------------------------------------------------------
-class Monad m => Log m where
-  logAs :: LogLevel -> Text -> m ()
-
-  logWhen :: LogLevel -> Logger m
-
-  logError :: Logger m
-
-  logWarning :: Logger m
-
-  logInfo :: Logger m
-
-  logDebug :: Logger m
-
-  printAs :: TextShow a => LogLevel -> a -> m ()
-
-  printWhen :: TextShow a => LogLevel -> Printer m a
-
-  printError :: TextShow a => Printer m a
-
-  printWarning :: TextShow a => Printer m a
-
-  printInfo :: TextShow a => Printer m a
-
-  printDebug :: TextShow a => Printer m a
+import qualified Data.Text.IO   as Text
+import qualified Data.Time      as Time
 
 
 --------------------------------------------------------------------------------
-type Logger m = Printer m Text
+class Monad m => Logger m where
+  logOnThread :: LogLevel -> Text -> m ()
+
+  logWhen :: LogLevel -> Context -> Text -> m ()
+
+  logError :: Context -> Text -> m ()
+
+  logWarning :: Context -> Text -> m ()
+
+  logInfo :: Context -> Text -> m ()
+
+  logDebug :: Context -> Text -> m ()
+
+  printWhen :: TextShow a => LogLevel -> Context -> a -> m ()
+
+  printError :: TextShow a => Context -> a -> m ()
+
+  printWarning :: TextShow a => Context -> a -> m ()
+
+  printInfo :: TextShow a => Context -> a -> m ()
+
+  printDebug :: TextShow a => Context -> a -> m ()
 
 
 --------------------------------------------------------------------------------
-type Printer m a = Server -> a -> m ()
+instance Logger IO where
+  logOnThread level text = do
+    currentTime <- Time.getCurrentTime
+    Text.putStrLn $ showt (FromStringShow currentTime)
+                  <> " |" <> levelToTag level
+                  <> "| " <> text
 
-
---------------------------------------------------------------------------------
-instance Log IO where
-  logAs level =
-    Text.putStrLn . (LogLevel.toTag level <>) . (": " <>)
-
-  logWhen level Server { serverLogLevel } =
-    if level >= serverLogLevel then
-      logAs level
+  logWhen level Context { contextLoggerQueue, contextLogLevel } =
+    if level >= contextLogLevel then
+      emitIO contextLoggerQueue . Log level
     else
       pure . const ()
 
@@ -76,11 +69,8 @@ instance Log IO where
   logDebug =
     logWhen LogDebug
 
-  printAs level =
-    logAs level . showt
-
-  printWhen level server =
-    logWhen level server . showt
+  printWhen level context =
+    logWhen level context . showt
 
   printError =
     printWhen LogError
@@ -93,3 +83,25 @@ instance Log IO where
 
   printDebug =
     printWhen LogDebug
+
+
+--------------------------------------------------------------------------------
+runLogger :: Context -> IO ()
+runLogger = forever . logQueue
+  where
+    logQueue :: Context -> IO ()
+    logQueue =
+      writeLog <=< receiveIO . contextLoggerQueue
+
+    writeLog :: Log -> IO ()
+    writeLog (Log level text) =
+      logOnThread level text
+
+
+--------------------------------------------------------------------------------
+levelToTag :: LogLevel -> Text
+levelToTag = \case
+  LogError   -> "ERROR"
+  LogWarning -> "WARN"
+  LogInfo    -> "INFO"
+  LogDebug   -> "DEBUG"

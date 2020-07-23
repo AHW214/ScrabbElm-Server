@@ -14,21 +14,18 @@ import           Data.Text                (Text)
 import           Data.Time.Clock          (NominalDiffTime)
 import           Network.Wai.Handler.Warp (Port)
 
-import           Scrabble.Authentication  (Secret)
-import           Scrabble.Log.Level       (LogLevel (..))
+import           Scrabble.Types           (LogLevel (..), Secret)
 
 import qualified Data.Aeson               as JSON
 import qualified Data.Text                as Text
 
-import qualified Scrabble.Authentication  as Auth
-
 
 --------------------------------------------------------------------------------
 data Config = Config
-  { configAuthSecret     :: Secret
-  , configLogLevel       :: LogLevel
-  , configPendingTimeout :: NominalDiffTime
-  , configPort           :: Port
+  { configAuthSecret    :: Secret
+  , configLogLevel      :: LogLevel
+  , configTimeoutLength :: NominalDiffTime
+  , configPort          :: Port
   }
 
 
@@ -37,17 +34,17 @@ instance FromJSON Config where
   parseJSON = JSON.withObject "Config" $ \v -> Config
     <$> v .:  "configAuthSecret"
     <*> v .:? "configLogLevel"       .!= configLogLevel placeholder
-    <*> v .:  "configPendingTimeout"
+    <*> v .:  "configTimeoutLength"
     <*> v .:? "configPort"           .!= configPort placeholder
 
 
 --------------------------------------------------------------------------------
 placeholder :: Config
 placeholder = Config
-  { configAuthSecret     = Auth.createSecret "PLACEHOLDER AUTH KEY"
-  , configLogLevel       = LogWarning
-  , configPendingTimeout = 5
-  , configPort           = 3000
+  { configAuthSecret    = "PLACEHOLDER AUTH KEY"
+  , configLogLevel      = LogWarning
+  , configTimeoutLength = 5
+  , configPort          = 3000
   }
 
 
