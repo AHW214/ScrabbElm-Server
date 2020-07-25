@@ -1,24 +1,29 @@
 module Scrabble.Player
   ( Player (..)
-  , hasName
+  , hasId
   , new
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Data.Text      (Text)
-
-import           Scrabble.Types (Player (..))
+import           Scrabble.Common (ID)
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Player
-new name = Player
-  { playerName  = name
+data Player = Player
+  { playerId    :: ID Player
+  , playerScore :: Int
+  }
+
+
+--------------------------------------------------------------------------------
+new :: ID Player -> Player
+new playerId = Player
+  { playerId
   , playerScore = 0
   }
 
 
 --------------------------------------------------------------------------------
-hasName :: Text -> Player -> Bool
-hasName name = (name ==) . playerName
+hasId :: ID Player -> Player -> Bool
+hasId pId = (pId ==) . playerId
