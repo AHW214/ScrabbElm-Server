@@ -1,5 +1,3 @@
-{-# LANGUAGE TypeFamilies #-}
-
 module Scrabble.Application
   ( runClient
   ) where
@@ -35,8 +33,22 @@ import qualified Scrabble.Room            as Room
 --------------------------------------------------------------------------------
 data Server = Server
   { lobbyBroadcastChan :: TChan (Message Outbound)
-  , serverRooms         :: TVar (Map Text (TVar Room))
+  , serverRooms        :: TVar (Map Text Room)
   }
+
+
+--------------------------------------------------------------------------------
+data LobbyAction
+  = EnterRoom Room
+  | LobbySendError Error -- refactor with type parameter so no duplicated constructors vs room
+  | LobbyNoOp
+
+
+--------------------------------------------------------------------------------
+data RoomAction
+  = EnterLobby
+  | RoomSendError Error
+  | RoomNoOp
 
 
 --------------------------------------------------------------------------------
@@ -47,36 +59,38 @@ runClient server@Server { lobbyBroadcastChan } client@Client { clientMessageChan
     lobbyProcess :: IO ()
     lobbyProcess = join $ STM.atomically $ do
       message <- readEitherMessage
-      let action = case message of
-            Left broadcast ->
-              sendToClient client broadcast >> lobbyProcess
+      case message of
+        Left broadcast ->
+          pure $ do
+            sendToClient client broadcast
+            lobbyProcess
 
-            Right inbound -> do
-              let ( transaction, action ) = handleLobby server client inbound
-              result <- STM.atomically transaction
-              case result of
-                Left err ->
-                  sendToClient client (CausedError err) >> lobbyProcess
+        Right inbound -> do
+          result <- handleLobby server client inbound
+          pure $ case result of
+            EnterRoom room ->
+              roomProcess room
 
-                Right res -> do
-                  joinedRoom <- action res
-                  if joinedRoom then
-                    roomProcess
-                  else
-                    lobbyProcess
+            LobbySendError err ->
+              sendToClient client (CausedError err) >> lobbyProcess
 
-      pure action
+            LobbyNoOp ->
+              lobbyProcess
 
-    roomProcess :: IO ()
-    roomProcess =
+    roomProcess :: Room -> IO ()
+    roomProcess room =
       join $ STM.atomically $ do
         inbound <- readInboundMessage
-        pure $ do
-          joinedLobby <- handleRoom server client inbound
-          if joinedLobby then
+        result <- handleRoom room client inbound
+        pure $ case result of
+          EnterLobby ->
             lobbyProcess
-          else
-            roomProcess
+
+          RoomSendError err ->
+            sendToClient client (CausedError err) >> roomProcess room
+
+          RoomNoOp ->
+            roomProcess room
 
     readEitherMessage :: STM (Either (Message Outbound) (Message Inbound))
     readEitherMessage = fmap Left readBroadcastMessage `STM.orElse` fmap Right readInboundMessage
@@ -99,40 +113,33 @@ runClient server@Server { lobbyBroadcastChan } client@Client { clientMessageChan
 
 
 --------------------------------------------------------------------------------
-handleLobby :: Server -> Client -> Message Inbound -> ( STM (Either Error a), a -> IO Bool )
+handleLobby :: Server -> Client -> Message Inbound -> STM LobbyAction
 handleLobby Server { lobbyBroadcastChan, serverRooms } client = \case
-  MakeRoom (MR { mrRoomCapacity = capacity, mrRoomId = roomId }) ->
-    ( do
-        rooms <- STM.readTVar serverRooms
-        if Map.member roomId rooms then
-          pure $ Left RoomAlreadyExists
-        else do
-          let newRoom = Room.new roomId capacity
-          newRooms <- flip (Map.insert roomId) rooms <$> STM.newTVar newRoom
-          STM.writeTVar serverRooms newRooms
-          Right <$> STM.writeTChan lobbyBroadcastChan (MadeRoom roomId) -- no-op message / exclude self from broadcast
-    , const $ pure False
-    )
+  MakeRoom (MR { mrRoomCapacity = capacity, mrRoomId = roomId }) -> do
+    rooms <- STM.readTVar serverRooms
+    if Map.member roomId rooms then
+      pure $ LobbySendError RoomAlreadyExists
+    else do
+      newRoom <- Room.new capacity roomId
+      let newRooms = Map.insert roomId newRoom rooms
+      STM.writeTVar serverRooms newRooms
+      STM.writeTChan lobbyBroadcastChan $ MadeRoom roomId
+      pure LobbyNoOp
 
-  JoinRoom (JR { jrRoomId = roomId }) ->
-    ( do
-        rooms <- STM.readTVar serverRooms
-        case Map.lookup roomId rooms of
-          Just tRoom -> do
-            STM.modifyTVar' tRoom $ Room.addPlayer client "cool name"
-            pure $ JoinedRoom roomId
+  JoinRoom (JR { jrRoomId = roomId }) -> do
+    rooms <- STM.readTVar serverRooms
+    case Map.lookup roomId rooms of
+      Just room -> do
+        Room.addPlayer client "cool name" room
+        pure $ EnterRoom room
 
-          _ ->
-            pure $ Left RoomNotFound
-    , \message -> do
-        sendToClient client message
-        pure True
-    )
+      _ ->
+        pure $ LobbySendError RoomNotFound
 
 
 --------------------------------------------------------------------------------
-handleRoom :: Server -> Client -> Message Inbound -> IO Bool
-handleRoom server client = undefined
+handleRoom :: Room -> Client -> Message Inbound -> STM RoomAction
+handleRoom room client = undefined
 
 
 --------------------------------------------------------------------------------

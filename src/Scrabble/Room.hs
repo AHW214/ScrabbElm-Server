@@ -10,81 +10,66 @@ module Scrabble.Room
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson          (ToJSON (toEncoding, toJSON), (.=))
-import           Data.Map            (Map)
-import           Data.Text           (Text)
+import           Control.Concurrent.STM (STM, TVar)
+import           Data.Map               (Map)
+import           Data.Text              (Text)
 
 -- import           Scrabble.Common     (ID)
-import           Scrabble.Client     (Client (..))
-import           Scrabble.Player     (Player)
+import           Scrabble.Client        (Client (..))
+import           Scrabble.Player        (Player)
 
-import qualified Data.Aeson          as JSON
-import qualified Data.Map            as Map
+import qualified Control.Concurrent.STM as STM
+import qualified Data.Map               as Map
 
-import qualified Scrabble.Player     as Player
+import qualified Scrabble.Player        as Player
 
 
 --------------------------------------------------------------------------------
 data Room = Room
   { roomCapacity :: Int
   , roomId       :: Text
-  , roomPlayers  :: Map Text Player
+  , roomPlayers  :: TVar (Map Text Player)
   }
 
 
 --------------------------------------------------------------------------------
-instance ToJSON Room where
-  toJSON Room { roomCapacity, roomId, roomPlayers } =
-    JSON.object
-      [ "roomCapacity"  .= roomCapacity
-      , "roomId"        .= roomId
-      , "roomOccupancy" .= length roomPlayers
-      ]
-
-  toEncoding Room { roomCapacity, roomId, roomPlayers } =
-    JSON.pairs
-      $  "roomCapacity"  .= roomCapacity
-      <> "roomId"        .= roomId
-      <> "roomOccupancy" .= length roomPlayers
+new :: Int -> Text -> STM Room
+new roomCapacity =
+  flip fmap (STM.newTVar Map.empty) . Room roomCapacity
 
 
 --------------------------------------------------------------------------------
-new :: Text -> Int -> Room
-new roomId roomCapacity = Room
-  { roomCapacity
-  , roomId
-  , roomPlayers = Map.empty
-  }
-
-
---------------------------------------------------------------------------------
-addPlayer :: Client -> Text -> Room -> Room
-addPlayer Client { clientId } playerId room@Room { roomPlayers } = room
-  { roomPlayers = Map.insert clientId player roomPlayers
-  }
+addPlayer :: Client -> Text -> Room -> STM ()
+addPlayer Client { clientId } playerId Room { roomPlayers } =
+  STM.modifyTVar' roomPlayers $ Map.insert clientId player
   where
     player :: Player
     player = Player.new playerId
 
 
 --------------------------------------------------------------------------------
-removePlayer :: Client -> Room -> Room
-removePlayer Client { clientId } room@Room { roomPlayers } = room
-  { roomPlayers = Map.delete clientId roomPlayers
-  }
+removePlayer :: Client -> Room -> STM ()
+removePlayer Client { clientId } Room { roomPlayers } =
+  STM.modifyTVar' roomPlayers $ Map.delete clientId
 
 
 --------------------------------------------------------------------------------
-isEmpty :: Room -> Bool
-isEmpty = null . roomPlayers
+isEmpty :: Room -> STM Bool
+isEmpty =
+  fmap null . STM.readTVar . roomPlayers
 
 
 --------------------------------------------------------------------------------
-isFull :: Room -> Bool
+isFull :: Room -> STM Bool
 isFull room =
-  occupancy room >= roomCapacity room
+  (roomCapacity room <=) <$> occupancy room
 
 
 --------------------------------------------------------------------------------
-occupancy :: Room -> Int
-occupancy = length . roomPlayers
+occupancy :: Room -> STM Int
+occupancy = fmap length . getPlayers
+
+
+--------------------------------------------------------------------------------
+getPlayers :: Room -> STM (Map Text Player)
+getPlayers = STM.readTVar . roomPlayers
