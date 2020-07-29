@@ -6,18 +6,20 @@ module Scrabble.Player
 
 
 --------------------------------------------------------------------------------
-import           Scrabble.Common (ID)
+import           Data.Text (Text)
+
+--import         Scrabble.Common (ID)
 
 
 --------------------------------------------------------------------------------
 data Player = Player
-  { playerId    :: ID Player
+  { playerId    :: Text
   , playerScore :: Int
   }
 
 
 --------------------------------------------------------------------------------
-new :: ID Player -> Player
+new :: Text -> Player
 new playerId = Player
   { playerId
   , playerScore = 0
@@ -25,5 +27,5 @@ new playerId = Player
 
 
 --------------------------------------------------------------------------------
-hasId :: ID Player -> Player -> Bool
+hasId :: Text -> Player -> Bool
 hasId pId = (pId ==) . playerId

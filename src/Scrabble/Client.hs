@@ -1,51 +1,29 @@
 module Scrabble.Client
   ( Client (..)
-  , getRoom
-  , inRoom
-  , joinRoom
-  , leaveRoom
   , new
   ) where
 
 
 --------------------------------------------------------------------------------
-import           Control.Concurrent.STM (TVar)
+import           Control.Concurrent.STM (STM, TChan)
+import           Data.Text              (Text)
 import           Network.WebSockets     (Connection)
 
-import           Scrabble.ClientRoom    (Client (..), Room)
-import           Scrabble.Common        (ID)
+-- import           Scrabble.Common     (ID)
+import           Scrabble.Message       (Inbound, Message)
 
-import qualified Data.Maybe             as Maybe
+import qualified Control.Concurrent.STM as STM
 
 
 --------------------------------------------------------------------------------
-new :: ID Client -> Connection -> Client
-new clientId clientConnection = Client
-  { clientConnection
-  , clientId
-  , clientRoom = Nothing
+data Client = Client
+  { clientConnection    :: Connection
+  , clientId            :: Text
+  , clientMessageChan   :: TChan (Message Inbound)
   }
 
 
 --------------------------------------------------------------------------------
-inRoom :: Client -> Bool
-inRoom = Maybe.isJust . getRoom
-
-
---------------------------------------------------------------------------------
-getRoom :: Client -> Maybe (TVar Room)
-getRoom = clientRoom
-
-
---------------------------------------------------------------------------------
-joinRoom :: TVar Room -> Client -> Client
-joinRoom tRoom client = client
-  { clientRoom = Just tRoom
-  }
-
-
---------------------------------------------------------------------------------
-leaveRoom :: Client -> Client
-leaveRoom client = client
-  { clientRoom = Nothing
-  }
+new :: Connection -> Text -> STM Client
+new connection =
+  flip fmap STM.newTChan . Client connection

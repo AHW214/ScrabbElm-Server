@@ -11,21 +11,21 @@ module Scrabble.Message
 
 
 --------------------------------------------------------------------------------
-import           Data.Aeson          (FromJSON (parseJSON), GFromJSON,
-                                      Options (constructorTagModifier,
-                                      fieldLabelModifier), ToJSON (toJSON),
-                                      Value, Zero)
-import           Data.Aeson.Types    (Parser)
-import           Data.Kind           (Type)
-import           GHC.Generics        (Generic, Rep)
+import           Data.Aeson       (FromJSON (parseJSON), GFromJSON, Options
+                                   (constructorTagModifier, fieldLabelModifier),
+                                   ToJSON (toJSON), Value, Zero)
+import           Data.Aeson.Types (Parser)
+import           Data.Kind        (Type)
+import           Data.Text        (Text)
+import           GHC.Generics     (Generic, Rep)
 
-import           Scrabble.ClientRoom (Client, Room)
-import           Scrabble.Common     (ID)
-import           Scrabble.Error      (Error)
+-- import           Scrabble.Common     (ID)
+import           Scrabble.Error   (Error)
+-- import           Scrabble.Room    (Room)
 
-import qualified Data.Aeson          as JSON
-import qualified Data.Char           as Char
-import qualified Data.List           as List
+import qualified Data.Aeson       as JSON
+import qualified Data.Char        as Char
+import qualified Data.List        as List
 
 
 --------------------------------------------------------------------------------
@@ -40,7 +40,7 @@ data Inbound = Inbound
 --------------------------------------------------------------------------------
 instance Communication Inbound where
   data Message Inbound
-    = JoinServer (ID Client)
+    = JoinServer Text
     | MakeRoom MakeRoom
     | JoinRoom JoinRoom
     | LeaveRoom
@@ -55,7 +55,7 @@ instance FromJSON (Message Inbound) where
 --------------------------------------------------------------------------------
 data MakeRoom = MR
   { mrRoomCapacity :: Int
-  , mrRoomId       :: ID Room
+  , mrRoomId       :: Text
   } deriving Generic
 
 
@@ -66,7 +66,7 @@ instance FromJSON MakeRoom where
 
 --------------------------------------------------------------------------------
 data JoinRoom = JR
-  { jrRoomId :: ID Room
+  { jrRoomId :: Text
   } deriving Generic
 
 
@@ -101,10 +101,10 @@ data Outbound = Outbound
 --------------------------------------------------------------------------------
 instance Communication Outbound where
   data Message Outbound
-    = JoinedServer [ Room ]
-    | MadeRoom Room
-    | RemovedRoom (ID Room)
-    | JoinedRoom Room
+    = JoinedServer [ Text ]
+    | MadeRoom Text
+    | RemovedRoom Text
+    | JoinedRoom Text
     | LeftRoom
     | CausedError Error
     deriving Generic

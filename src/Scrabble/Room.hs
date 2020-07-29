@@ -10,17 +10,46 @@ module Scrabble.Room
 
 
 --------------------------------------------------------------------------------
-import           Scrabble.ClientRoom (Client (..), Room (..))
-import           Scrabble.Common     (ID)
+import           Data.Aeson          (ToJSON (toEncoding, toJSON), (.=))
+import           Data.Map            (Map)
+import           Data.Text           (Text)
+
+-- import           Scrabble.Common     (ID)
+import           Scrabble.Client     (Client (..))
 import           Scrabble.Player     (Player)
 
+import qualified Data.Aeson          as JSON
 import qualified Data.Map            as Map
 
 import qualified Scrabble.Player     as Player
 
 
 --------------------------------------------------------------------------------
-new :: ID Room -> Int -> Room
+data Room = Room
+  { roomCapacity :: Int
+  , roomId       :: Text
+  , roomPlayers  :: Map Text Player
+  }
+
+
+--------------------------------------------------------------------------------
+instance ToJSON Room where
+  toJSON Room { roomCapacity, roomId, roomPlayers } =
+    JSON.object
+      [ "roomCapacity"  .= roomCapacity
+      , "roomId"        .= roomId
+      , "roomOccupancy" .= length roomPlayers
+      ]
+
+  toEncoding Room { roomCapacity, roomId, roomPlayers } =
+    JSON.pairs
+      $  "roomCapacity"  .= roomCapacity
+      <> "roomId"        .= roomId
+      <> "roomOccupancy" .= length roomPlayers
+
+
+--------------------------------------------------------------------------------
+new :: Text -> Int -> Room
 new roomId roomCapacity = Room
   { roomCapacity
   , roomId
@@ -29,7 +58,7 @@ new roomId roomCapacity = Room
 
 
 --------------------------------------------------------------------------------
-addPlayer :: Client -> ID Player -> Room -> Room
+addPlayer :: Client -> Text -> Room -> Room
 addPlayer Client { clientId } playerId room@Room { roomPlayers } = room
   { roomPlayers = Map.insert clientId player roomPlayers
   }
