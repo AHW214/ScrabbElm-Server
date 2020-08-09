@@ -15,7 +15,8 @@ import           System.Exit              (exitSuccess)
 import           Scrabble.Client          (Client (..))
 -- import           Scrabble.Common          (ID)
 import           Scrabble.Error           (Error (..))
-import           Scrabble.Message         (Inbound, JoinRoom (..), Message (..), MakeRoom (..), Outbound)
+import           Scrabble.Message         (Inbound, JoinRoom (..), Message (..), MakeRoom (..), Outbound, SetPlayerId (..))
+import           Scrabble.Player          (Player (..))
 import           Scrabble.Room            (Room (..))
 
 import qualified Control.Concurrent.Async as Async
@@ -53,53 +54,100 @@ data RoomAction
 
 --------------------------------------------------------------------------------
 runClient :: Server -> Client -> IO ()
-runClient server@Server { lobbyBroadcastChan } client@Client { clientMessageChan } = do
-  void $ Async.race lobbyProcess receiveProcess
+runClient server@Server { lobbyBroadcastChan, serverRooms } client@Client { clientMessageChan } =
+  void $ Async.race (enterLobby Nothing) receiveProcess
   where
-    lobbyProcess :: IO ()
-    lobbyProcess = join $ STM.atomically $ do
-      message <- readEitherMessage
-      case message of
-        Left broadcast ->
-          pure $ do
-            sendToClient client broadcast
-            lobbyProcess
+    enterLobby :: Maybe Room -> IO ()
+    enterLobby fromRoom = join $ STM.atomically $ do
+      rooms <-
+        case fromRoom of
+          Just room@Room { roomId } -> do
+            roomEmpty <- Room.isEmpty room
+            if roomEmpty then do
+              STM.writeTChan lobbyBroadcastChan $ RemovedRoom roomId
+              STM.stateTVar serverRooms $ \rooms ->
+                let
+                  newRooms = Map.delete roomId rooms
+                in
+                  ( newRooms, newRooms )
+            else do
+              STM.writeTChan lobbyBroadcastChan $ UpdatedRoom "room placeholder"
+              STM.readTVar serverRooms
 
-        Right inbound -> do
-          result <- handleLobby server client inbound
-          pure $ case result of
-            EnterRoom room ->
-              roomProcess room
+          _ ->
+            STM.readTVar serverRooms
 
-            LobbySendError err ->
-              sendToClient client (CausedError err) >> lobbyProcess
+      broadcastChan <- STM.dupTChan lobbyBroadcastChan
 
-            LobbyNoOp ->
-              lobbyProcess
+      pure $ do
+        sendToClient client $ JoinedLobby [ "room list placeholder" ] -- do something with rooms
+        lobbyProcess broadcastChan
 
-    roomProcess :: Room -> IO ()
-    roomProcess room =
+    lobbyProcess :: TChan (Message Outbound) -> IO ()
+    lobbyProcess broadcastChan =
       join $ STM.atomically $ do
-        inbound <- readInboundMessage
-        result <- handleRoom room client inbound
-        pure $ case result of
-          EnterLobby ->
-            lobbyProcess
+        message <- readBroadcastOrInbound broadcastChan
+        case message of
+          Left broadcast ->
+            pure $ do
+              sendToClient client broadcast
+              lobbyProcess broadcastChan
 
-          RoomSendError err ->
-            sendToClient client (CausedError err) >> roomProcess room
+          Right inbound -> do
+            result <- handleLobby server client inbound
+            pure $ case result of
+              EnterRoom room ->
+                enterRoom room
 
-          RoomNoOp ->
-            roomProcess room
+              LobbySendError err -> do
+                sendToClient client $ CausedError err
+                lobbyProcess broadcastChan
 
-    readEitherMessage :: STM (Either (Message Outbound) (Message Inbound))
-    readEitherMessage = fmap Left readBroadcastMessage `STM.orElse` fmap Right readInboundMessage
+              LobbyNoOp ->
+                lobbyProcess broadcastChan
 
-    readBroadcastMessage :: STM (Message Outbound)
-    readBroadcastMessage = STM.readTChan lobbyBroadcastChan
+    enterRoom :: Room -> IO ()
+    enterRoom room@Room { roomBroadcastChan, roomId } =
+      join $ STM.atomically $ do
+        broadcastChan <- STM.dupTChan roomBroadcastChan
 
-    readInboundMessage :: STM (Message Inbound)
-    readInboundMessage = STM.readTChan clientMessageChan
+        pure $ do
+          sendToClient client $ JoinedRoom roomId
+          roomProcess broadcastChan room
+
+    -- almost isomorphic to lobbyProcess; abstract it out
+    roomProcess :: TChan (Message Outbound) -> Room -> IO ()
+    roomProcess broadcastChan room =
+      join $ STM.atomically $ do
+        message <- readBroadcastOrInbound broadcastChan
+        case message of
+          Left broadcast ->
+            pure $ do
+              sendToClient client broadcast
+              roomProcess broadcastChan room
+
+          Right inbound -> do
+            result <- handleRoom room client inbound
+            pure $ case result of
+              EnterLobby ->
+                enterLobby $ Just room
+
+              RoomSendError err -> do
+                sendToClient client $ CausedError err
+                roomProcess broadcastChan room
+
+              RoomNoOp ->
+                roomProcess broadcastChan room
+
+    readBroadcastOrInbound :: TChan (Message Outbound) -> STM (Either (Message Outbound) (Message Inbound))
+    readBroadcastOrInbound broadcastChan =
+      fmap Left (readBroadcast broadcastChan) `STM.orElse` fmap Right readInbound
+
+    readBroadcast :: TChan (Message Outbound) -> STM (Message Outbound)
+    readBroadcast = STM.readTChan
+
+    readInbound :: STM (Message Inbound)
+    readInbound = STM.readTChan clientMessageChan
 
     receiveProcess :: IO ()
     receiveProcess = do
@@ -115,31 +163,70 @@ runClient server@Server { lobbyBroadcastChan } client@Client { clientMessageChan
 --------------------------------------------------------------------------------
 handleLobby :: Server -> Client -> Message Inbound -> STM LobbyAction
 handleLobby Server { lobbyBroadcastChan, serverRooms } client = \case
-  MakeRoom (MR { mrRoomCapacity = capacity, mrRoomId = roomId }) -> do
-    rooms <- STM.readTVar serverRooms
-    if Map.member roomId rooms then
-      pure $ LobbySendError RoomAlreadyExists
-    else do
-      newRoom <- Room.new capacity roomId
-      let newRooms = Map.insert roomId newRoom rooms
-      STM.writeTVar serverRooms newRooms
-      STM.writeTChan lobbyBroadcastChan $ MadeRoom roomId
-      pure LobbyNoOp
+  MakeRoom (MR { mrRoomCapacity = capacity, mrRoomId = roomId }) ->
+    if capacity <= Room.maxCapacity && capacity > 0 then do
+      rooms <- STM.readTVar serverRooms
+      if Map.member roomId rooms then
+        pure $ LobbySendError RoomAlreadyExists
+      else do
+        newRoom <- Room.new capacity roomId
+        let newRooms = Map.insert roomId newRoom rooms
+        STM.writeTVar serverRooms newRooms
+        STM.writeTChan lobbyBroadcastChan $ MadeRoom roomId
+        pure LobbyNoOp
+    else
+      pure $ LobbySendError RoomInvalidCapacity
 
   JoinRoom (JR { jrRoomId = roomId }) -> do
     rooms <- STM.readTVar serverRooms
     case Map.lookup roomId rooms of
       Just room -> do
-        Room.addPlayer client "cool name" room
-        pure $ EnterRoom room
+        canJoin <- Room.canJoin room
+        if canJoin then do
+          Room.addPendingClient client room
+          STM.writeTChan lobbyBroadcastChan $ UpdatedRoom "room placeholder"
+          pure $ EnterRoom room
+        else
+          pure $ LobbySendError RoomCannotJoin -- vague
 
       _ ->
         pure $ LobbySendError RoomNotFound
 
+  _ ->
+    pure $ LobbySendError MessageInapplicable -- narrow message type per location to remove this case ?
+
 
 --------------------------------------------------------------------------------
 handleRoom :: Room -> Client -> Message Inbound -> STM RoomAction
-handleRoom room client = undefined
+handleRoom room client = \case
+  JoinLobby -> do
+    Room.getPlayer client room >>= \case
+      Just Player { playerId } -> do
+        Room.removePlayer client room
+        Room.broadcast room $ PlayerLeft playerId
+
+      _ ->
+        Room.removePendingClient client room
+
+    pure EnterLobby
+
+  SetPlayerId (SPI { spiPlayerId = playerId }) -> do
+    isPendingClient <- Room.hasPendingClient client room
+    if isPendingClient then do
+      nameInUse <- Room.hasPlayerWithId playerId room
+      if nameInUse then
+        pure $ RoomSendError PlayerIdInUse
+      else do
+        Room.removePendingClient client room -- todo: should probably have all stm reads first and then stm writes
+        Room.addPlayer client playerId room
+        Room.broadcast room $ PlayerJoined playerId -- this will tell the player that joined too [change order of these actions ?]
+
+        pure RoomNoOp
+    else
+      pure $ RoomSendError PlayerIdAlreadySet
+
+  _ ->
+    pure $ RoomSendError MessageInapplicable
 
 
 --------------------------------------------------------------------------------

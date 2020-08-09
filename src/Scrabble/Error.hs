@@ -18,7 +18,12 @@ data Error
   = ClientAlreadyInRoom
   | ClientNotInRoom
   | RoomNotFound
+  | RoomCannotJoin
   | RoomAlreadyExists
+  | RoomInvalidCapacity
+  | PlayerIdInUse
+  | PlayerIdAlreadySet
+  | MessageInapplicable
   | MessageInvalid Text
   deriving Generic
 

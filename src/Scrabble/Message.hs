@@ -7,6 +7,7 @@ module Scrabble.Message
   , MakeRoom (..)
   , Message (..)
   , Outbound
+  , SetPlayerId (..)
   ) where
 
 
@@ -40,10 +41,10 @@ data Inbound = Inbound
 --------------------------------------------------------------------------------
 instance Communication Inbound where
   data Message Inbound
-    = JoinServer Text
+    = JoinLobby
     | MakeRoom MakeRoom
     | JoinRoom JoinRoom
-    | LeaveRoom
+    | SetPlayerId SetPlayerId
     deriving Generic
 
 
@@ -76,6 +77,17 @@ instance FromJSON JoinRoom where
 
 
 --------------------------------------------------------------------------------
+data SetPlayerId = SPI
+  { spiPlayerId :: Text
+  } deriving Generic
+
+
+--------------------------------------------------------------------------------
+instance FromJSON SetPlayerId where
+  parseJSON = parseInboundParameter
+
+
+--------------------------------------------------------------------------------
 parseInboundParameter
   :: (Generic a, GFromJSON Zero (Rep a))
   => Value
@@ -101,11 +113,13 @@ data Outbound = Outbound
 --------------------------------------------------------------------------------
 instance Communication Outbound where
   data Message Outbound
-    = JoinedServer [ Text ]
+    = JoinedLobby [ Text ]
     | MadeRoom Text
+    | UpdatedRoom Text
     | RemovedRoom Text
     | JoinedRoom Text
-    | LeftRoom
+    | PlayerJoined Text
+    | PlayerLeft Text
     | CausedError Error
     deriving Generic
 

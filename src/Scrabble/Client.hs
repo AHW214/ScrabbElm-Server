@@ -24,6 +24,18 @@ data Client = Client
 
 
 --------------------------------------------------------------------------------
+instance Ord Client where
+  compare Client { clientId = firstId } Client { clientId = secondId } =
+    compare firstId secondId
+
+
+--------------------------------------------------------------------------------
+instance Eq Client where
+  Client { clientId = firstId } == Client { clientId = secondId } =
+    firstId == secondId
+
+
+--------------------------------------------------------------------------------
 new :: Connection -> Text -> STM Client
 new connection =
   flip fmap STM.newTChan . Client connection
