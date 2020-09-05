@@ -1,4 +1,5 @@
-resolver: nightly-2020-02-13
+# resolver version set to track that in https://github.com/haskell/haskell-language-server/blob/master/stack-8.10.1.yaml
+resolver: nightly-2020-08-08
 compiler: ghc-8.10.1
 
 packages:
