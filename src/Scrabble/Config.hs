@@ -1,38 +1,36 @@
 module Scrabble.Config
   ( Config (..),
-    decode,
-    path,
+    load,
     placeholder,
   )
 where
 
 --------------------------------------------------------------------------------
-import Control.Arrow (left)
-import Data.Aeson (FromJSON, (.!=), (.:), (.:?))
 import qualified Data.Aeson as JSON
-import Data.ByteString (ByteString)
-import Data.Text (Text)
-import qualified Data.Text as Text
 import Data.Time.Clock (NominalDiffTime)
+import Data.Yaml (FromJSON, (.!=), (.:), (.:?))
+import Data.Yaml.Config (ignoreEnv, loadYamlSettings)
 import Network.Wai.Handler.Warp (Port)
-import Scrabble.Types (LogLevel (..), Secret)
+import Scrabble.Log (LogLevel (..), logOnThread)
+import Scrabble.Types (Secret)
+import System.Directory (doesFileExist)
 
 --------------------------------------------------------------------------------
 data Config = Config
-  { configAuthSecret :: Secret,
-    configLogLevel :: LogLevel,
-    configTimeoutLength :: NominalDiffTime,
-    configPort :: Port
+  { configAuthSecret :: !Secret,
+    configLogLevel :: !LogLevel,
+    configTimeoutLength :: !NominalDiffTime,
+    configPort :: !Port
   }
 
 --------------------------------------------------------------------------------
 instance FromJSON Config where
-  parseJSON = JSON.withObject "Config" $ \v ->
+  parseJSON = JSON.withObject "Config" $ \o ->
     Config
-      <$> v .: "configAuthSecret"
-      <*> v .:? "configLogLevel" .!= configLogLevel placeholder
-      <*> v .: "configTimeoutLength"
-      <*> v .:? "configPort" .!= configPort placeholder
+      <$> o .: "configAuthSecret"
+      <*> o .:? "configLogLevel" .!= configLogLevel placeholder
+      <*> o .: "configTimeoutLength"
+      <*> o .:? "configPort" .!= configPort placeholder
 
 --------------------------------------------------------------------------------
 placeholder :: Config
@@ -45,9 +43,16 @@ placeholder =
     }
 
 --------------------------------------------------------------------------------
-decode :: ByteString -> Either Text Config
-decode = left Text.pack . JSON.eitherDecodeStrict'
+load :: IO Config
+load = do
+  configExists <- doesFileExist path
+
+  if configExists
+    then loadYamlSettings [path] [] ignoreEnv
+    else do
+      logOnThread LogWarning "Using placeholder config"
+      pure placeholder
 
 --------------------------------------------------------------------------------
 path :: FilePath
-path = "config.json"
+path = "scrabble.yaml"

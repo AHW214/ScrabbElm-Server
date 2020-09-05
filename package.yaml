@@ -17,6 +17,7 @@ dependencies:
 - base >= 4.7 && < 5
 - bytestring
 - containers
+- directory
 - http-types
 - jwt
 - random
@@ -29,6 +30,7 @@ dependencies:
 - wai-websockets
 - warp
 - websockets
+- yaml
 
 default-extensions:
 - DeriveFoldable
