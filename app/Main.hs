@@ -4,10 +4,6 @@ module Main where
 
 import qualified Control.Concurrent.Async as Async
 import qualified Control.Concurrent.STM as STM
-import qualified Control.Exception as Exception
-import Control.Monad (guard)
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BSS
 import Data.Maybe (fromMaybe, listToMaybe)
 import Network.Wai.Handler.Warp (Port)
 import qualified Network.Wai.Handler.Warp as Warp
@@ -29,8 +25,6 @@ import qualified Scrabble.Request as Request
 import Scrabble.Types (Context (..), Talk (..))
 import qualified Scrabble.WebSocket as WebSocket
 import System.Environment (getArgs)
-import System.Exit (exitFailure)
-import System.IO.Error (isDoesNotExistError)
 import qualified System.Random as Random
 import Text.Read (readMaybe)
 import TextShow (showt)
@@ -42,7 +36,7 @@ main = do
     { configLogLevel,
       configPort
     } <-
-    loadConfig
+    Config.load
 
   loggerQueue <- STM.newTBQueueIO 256 -- todo
   gatewayQueue <- newQueueIO
@@ -82,40 +76,9 @@ main = do
   logOnThread LogInfo $ "Listening on port " <> showt port
   Warp.run port $ websocketsOr WS.defaultConnectionOptions wsApp rqApp
   where
-    loadConfig :: IO Config
-    loadConfig =
-      readFileSafe Config.path >>= \case
-        Just configJson ->
-          case Config.decode configJson of
-            Right config ->
-              pure config
-            Left errMsg ->
-              logOnThread LogError ("Failed to decode config (" <> errMsg <> ")")
-                >> exitFailure
-        _ ->
-          logOnThread LogWarning "Using placeholder config"
-            >> pure Config.placeholder
-
     readCustomPort :: IO (Maybe Port)
     readCustomPort = readPort <$> getArgs
 
 --------------------------------------------------------------------------------
 readPort :: [String] -> Maybe Port
 readPort = (readMaybe =<<) . listToMaybe
-
---------------------------------------------------------------------------------
-readFileSafe :: FilePath -> IO (Maybe ByteString)
-readFileSafe filePath =
-  Exception.catchJust whenDoesNotExist readFileMaybe handleNothing
-  where
-    whenDoesNotExist :: IOError -> Maybe ()
-    whenDoesNotExist =
-      guard . isDoesNotExistError
-
-    readFileMaybe :: IO (Maybe ByteString)
-    readFileMaybe =
-      Just <$> BSS.readFile filePath
-
-    handleNothing :: () -> IO (Maybe ByteString)
-    handleNothing =
-      pure . const Nothing
