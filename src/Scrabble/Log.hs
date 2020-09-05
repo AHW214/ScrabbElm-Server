@@ -1,22 +1,23 @@
 module Scrabble.Log
-  ( Log (..)
-  , Logger (..)
-  , LogLevel (..)
-  , runLogger
-  ) where
-
+  ( Log (..),
+    Logger (..),
+    LogLevel (..),
+    runLogger,
+  )
+where
 
 --------------------------------------------------------------------------------
-import           Control.Monad  (forever, (<=<))
-import           Data.Text      (Text)
-import           TextShow       (FromStringShow (..), TextShow (..))
-
-import           Scrabble.Types (Context (..), Log (..), LogLevel (..),
-                                 Talk (..))
-
-import qualified Data.Text.IO   as Text
-import qualified Data.Time      as Time
-
+import Control.Monad (forever, (<=<))
+import Data.Text (Text)
+import qualified Data.Text.IO as Text
+import qualified Data.Time as Time
+import Scrabble.Types
+  ( Context (..),
+    Log (..),
+    LogLevel (..),
+    Talk (..),
+  )
+import TextShow (FromStringShow (..), TextShow (..))
 
 --------------------------------------------------------------------------------
 class Monad m => Logger m where
@@ -42,20 +43,21 @@ class Monad m => Logger m where
 
   printDebug :: TextShow a => Context -> a -> m ()
 
-
 --------------------------------------------------------------------------------
 instance Logger IO where
   logOnThread level text = do
     currentTime <- Time.getCurrentTime
-    Text.putStrLn $ showt (FromStringShow currentTime)
-                  <> " |" <> levelToTag level
-                  <> "| " <> text
+    Text.putStrLn $
+      showt (FromStringShow currentTime)
+        <> " |"
+        <> levelToTag level
+        <> "| "
+        <> text
 
-  logWhen level Context { contextLoggerQueue, contextLogLevel } =
-    if level >= contextLogLevel then
-      emitIO contextLoggerQueue . Log level
-    else
-      pure . const ()
+  logWhen level Context {contextLoggerQueue, contextLogLevel} =
+    if level >= contextLogLevel
+      then emitIO contextLoggerQueue . Log level
+      else pure . const ()
 
   logError =
     logWhen LogError
@@ -84,7 +86,6 @@ instance Logger IO where
   printDebug =
     printWhen LogDebug
 
-
 --------------------------------------------------------------------------------
 runLogger :: Context -> IO ()
 runLogger = forever . logQueue
@@ -97,11 +98,10 @@ runLogger = forever . logQueue
     writeLog (Log level text) =
       logOnThread level text
 
-
 --------------------------------------------------------------------------------
 levelToTag :: LogLevel -> Text
 levelToTag = \case
-  LogError   -> "ERROR"
+  LogError -> "ERROR"
   LogWarning -> "WARN"
-  LogInfo    -> "INFO"
-  LogDebug   -> "DEBUG"
+  LogInfo -> "INFO"
+  LogDebug -> "DEBUG"
