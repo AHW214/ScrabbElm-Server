@@ -1,65 +1,67 @@
 module Main where
 
-
 --------------------------------------------------------------------------------
-import           Control.Monad                  (guard)
-import           Data.ByteString                (ByteString)
-import           Data.Maybe                     (fromMaybe, listToMaybe)
-import           Network.Wai.Handler.Warp       (Port)
-import           Network.Wai.Handler.WebSockets (websocketsOr)
-import           Network.Wai.Middleware.Cors    (simpleCors)
-import           System.Environment             (getArgs)
-import           System.Exit                    (exitFailure)
-import           System.IO.Error                (isDoesNotExistError)
-import           Text.Read                      (readMaybe)
-import           TextShow                       (showt)
 
-import           Scrabble.Config                (Config (..))
-import           Scrabble.Handler               (gatewayHandler, lobbyHandler,
-                                                 processQueue)
-import           Scrabble.Log                   (Logger (..), LogLevel (..))
-import           Scrabble.Types                 (Context (..), Talk (..))
-
-import qualified Control.Concurrent.Async       as Async
-import qualified Control.Concurrent.STM         as STM
-import qualified Control.Exception              as Exception
-import qualified Data.ByteString.Char8          as BSS
-import qualified Network.Wai.Handler.Warp       as Warp
-import qualified Network.WebSockets             as WS
-import qualified System.Random                  as Random
-
-import qualified Scrabble.Config                as Config
-import qualified Scrabble.Gateway               as Gateway
-import qualified Scrabble.Lobby                 as Lobby
-import qualified Scrabble.Log                   as Log
-import qualified Scrabble.Request               as Request
-import qualified Scrabble.WebSocket             as WebSocket
-
+import qualified Control.Concurrent.Async as Async
+import qualified Control.Concurrent.STM as STM
+import qualified Control.Exception as Exception
+import Control.Monad (guard)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BSS
+import Data.Maybe (fromMaybe, listToMaybe)
+import Network.Wai.Handler.Warp (Port)
+import qualified Network.Wai.Handler.Warp as Warp
+import Network.Wai.Handler.WebSockets (websocketsOr)
+import Network.Wai.Middleware.Cors (simpleCors)
+import qualified Network.WebSockets as WS
+import Scrabble.Config (Config (..))
+import qualified Scrabble.Config as Config
+import qualified Scrabble.Gateway as Gateway
+import Scrabble.Handler
+  ( gatewayHandler,
+    lobbyHandler,
+    processQueue,
+  )
+import qualified Scrabble.Lobby as Lobby
+import Scrabble.Log (LogLevel (..), Logger (..))
+import qualified Scrabble.Log as Log
+import qualified Scrabble.Request as Request
+import Scrabble.Types (Context (..), Talk (..))
+import qualified Scrabble.WebSocket as WebSocket
+import System.Environment (getArgs)
+import System.Exit (exitFailure)
+import System.IO.Error (isDoesNotExistError)
+import qualified System.Random as Random
+import Text.Read (readMaybe)
+import TextShow (showt)
 
 --------------------------------------------------------------------------------
 main :: IO ()
 main = do
   config@Config
-    { configLogLevel
-    , configPort
-    } <- loadConfig
+    { configLogLevel,
+      configPort
+    } <-
+    loadConfig
 
   loggerQueue <- STM.newTBQueueIO 256 -- todo
   gatewayQueue <- newQueueIO
   lobbyQueue <- newQueueIO
 
-  let context = Context
-        { contextLobbyQueue  = lobbyQueue
-        , contextLoggerQueue = loggerQueue
-        , contextLogLevel    = configLogLevel
-        }
+  let context =
+        Context
+          { contextLobbyQueue = lobbyQueue,
+            contextLoggerQueue = loggerQueue,
+            contextLogLevel = configLogLevel
+          }
 
   gatewayStdGen <- Random.getStdGen
 
-  let gateway = Gateway.new
-        config
-        gatewayStdGen
-        gatewayQueue
+  let gateway =
+        Gateway.new
+          config
+          gatewayStdGen
+          gatewayQueue
 
   let lobby = Lobby.new lobbyQueue
 
@@ -87,23 +89,19 @@ main = do
           case Config.decode configJson of
             Right config ->
               pure config
-
             Left errMsg ->
               logOnThread LogError ("Failed to decode config (" <> errMsg <> ")")
-              >> exitFailure
-
+                >> exitFailure
         _ ->
           logOnThread LogWarning "Using placeholder config"
-          >> pure Config.placeholder
+            >> pure Config.placeholder
 
     readCustomPort :: IO (Maybe Port)
     readCustomPort = readPort <$> getArgs
 
-
 --------------------------------------------------------------------------------
-readPort :: [ String ] -> Maybe Port
+readPort :: [String] -> Maybe Port
 readPort = (readMaybe =<<) . listToMaybe
-
 
 --------------------------------------------------------------------------------
 readFileSafe :: FilePath -> IO (Maybe ByteString)

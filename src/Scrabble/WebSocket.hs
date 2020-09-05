@@ -1,19 +1,22 @@
 module Scrabble.WebSocket
-  ( app
-  ) where
-
+  ( app,
+  )
+where
 
 --------------------------------------------------------------------------------
-import           Control.Monad          (forever)
-import           Network.WebSockets     (ServerApp)
-
-import           Scrabble.Types         (Communicate (..), Event (..),
-                                         EventQueue, Gateway, Talk (..))
 
 import qualified Control.Concurrent.STM as STM
-import qualified Control.Exception      as Exception
-import qualified Network.WebSockets     as WS
-
+import qualified Control.Exception as Exception
+import Control.Monad (forever)
+import Network.WebSockets (ServerApp)
+import qualified Network.WebSockets as WS
+import Scrabble.Types
+  ( Communicate (..),
+    Event (..),
+    EventQueue,
+    Gateway,
+    Talk (..),
+  )
 
 --------------------------------------------------------------------------------
 app :: EventQueue Gateway -> ServerApp
@@ -32,14 +35,14 @@ app gatewayQueue pendingConnection = do
     case authResult of
       Left err ->
         closeConnection connection err
-
       Right clientQueue ->
         Exception.finally onMessage onDisconnect
         where
           onMessage :: IO ()
-          onMessage = forever $
-            emitIO clientQueue . ClientMessageReceive
-              =<< fromConnection connection
+          onMessage =
+            forever $
+              emitIO clientQueue . ClientMessageReceive
+                =<< fromConnection connection
 
           onDisconnect :: IO ()
           onDisconnect =
