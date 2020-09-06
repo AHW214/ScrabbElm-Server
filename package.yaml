@@ -12,25 +12,7 @@ extra-source-files:
 description: Please see the README on GitHub at <https://github.com/AHW214/ScrabbElm-Server#readme>
 
 dependencies:
-- aeson
-- async
-- base >= 4.7 && < 5
-- bytestring
-- containers
-- directory
-- http-types
-- jwt
-- random
-- stm
-- text
-- text-show
-- time
-- wai
-- wai-cors
-- wai-websockets
-- warp
-- websockets
-- yaml
+- rio
 
 default-extensions:
 - DeriveFoldable
