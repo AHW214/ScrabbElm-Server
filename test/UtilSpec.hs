@@ -1,10 +1,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+
 module UtilSpec (spec) where
 
 import Import
-import Util
 import Test.Hspec
 import Test.Hspec.QuickCheck
+import Util
 
 spec :: Spec
 spec = do
