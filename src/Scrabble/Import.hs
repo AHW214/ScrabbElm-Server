@@ -1,8 +1,10 @@
 module Scrabble.Import
   ( module RIO,
-    module Scrabble.Types,
+    module Scrabble.App,
+    module Scrabble.CLI,
   )
 where
 
 import RIO
-import Scrabble.Types
+import Scrabble.App
+import Scrabble.CLI

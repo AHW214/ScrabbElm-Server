@@ -1,12 +1,8 @@
-module Scrabble.Types where
+module Scrabble.App (App (..)) where
 
 import RIO
 import RIO.Process (HasProcessContext (..), ProcessContext)
-
--- | Command line arguments
-data Options = Options
-  { optionsVerbose :: !Bool
-  }
+import Scrabble.CLI (Options)
 
 data App = App
   { appLogFunc :: !LogFunc,
