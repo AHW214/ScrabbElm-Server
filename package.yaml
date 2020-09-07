@@ -1,10 +1,10 @@
-name:       ScrabbElm-Server
-version:    '0.1.0.0'
-github:     AHW214/ScrabbElm-Server
-license:    BSD3
-author:     Troy Hu and Adam Weider
+name: scrabbelm-server
+version: 0.1.0.0
+github: AHW214/ScrabbElm-Server
+license: BSD3
+author: Troy Hu and Adam Weider
 maintainer: adamweider98@gmail.com
-copyright:  2020 Troy Hu and Adam Weider
+copyright: 2020 Troy Hu and Adam Weider
 
 extra-source-files:
 - README.md
@@ -12,69 +12,76 @@ extra-source-files:
 description: Please see the README on GitHub at <https://github.com/AHW214/ScrabbElm-Server#readme>
 
 dependencies:
-- aeson
-- async
-- base >= 4.7 && < 5
-- bytestring
-- containers
-- directory
-- http-types
-- jwt
-- random
-- stm
-- text
-- text-show
-- time
-- wai
-- wai-cors
-- wai-websockets
-- warp
-- websockets
-- yaml
+- base >= 4.11 && < 10
+- rio >= 0.1.12.0
 
 default-extensions:
+- BangPatterns
+- BinaryLiterals
+- ConstraintKinds
+- DataKinds
+- DefaultSignatures
+- DeriveDataTypeable
 - DeriveFoldable
 - DeriveFunctor
+- DeriveGeneric
 - DeriveTraversable
-- EmptyCase
+- DoAndIfThenElse
+- EmptyDataDecls
+- ExistentialQuantification
 - FlexibleContexts
 - FlexibleInstances
+- FunctionalDependencies
+- GADTs
 - GeneralizedNewtypeDeriving
 - InstanceSigs
+- KindSignatures
 - LambdaCase
 - MultiParamTypeClasses
 - MultiWayIf
 - NamedFieldPuns
+- NoImplicitPrelude
 - OverloadedStrings
+- PartialTypeSignatures
+- PatternGuards
+- PolyKinds
+- RankNTypes
+- RecordWildCards
 - ScopedTypeVariables
+- StandaloneDeriving
 - TupleSections
+- TypeFamilies
+- TypeSynonymInstances
+- ViewPatterns
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wpartial-fields
+- -Wredundant-constraints
 
 library:
   source-dirs: src
 
 executables:
-  ScrabbElm-Server:
-    main:           Main.hs
-    source-dirs:    app
+  scrabbelm-server:
+    main: Main.hs
+    source-dirs: app
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    - -Wall
-    - -Wcompat
-    - -Wincomplete-record-updates
-    - -Wincomplete-uni-patterns
-    - -Wredundant-constraints
     dependencies:
-    - ScrabbElm-Server
+    - scrabbelm-server
+    - optparse-simple
 
 tests:
-  ScrabbElm-Server-test:
-    main:                Spec.hs
-    source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
+  spec:
+    main: Spec.hs
+    source-dirs: test
     dependencies:
-    - ScrabbElm-Server
+    - scrabbelm-server
+    - hspec
