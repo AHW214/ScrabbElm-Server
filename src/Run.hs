@@ -1,9 +1,6 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-
 module Run (run) where
 
-import Import
+import Import (App, RIO, logInfo)
 
 run :: RIO App ()
 run = do

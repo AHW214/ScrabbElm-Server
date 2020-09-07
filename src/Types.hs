@@ -1,9 +1,7 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-
 module Types where
 
 import RIO
-import RIO.Process
+import RIO.Process (HasProcessContext (..), ProcessContext)
 
 -- | Command line arguments
 data Options = Options

@@ -1,13 +1,12 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE NoImplicitPrelude #-}
 
 module Main (main) where
 
 import Import
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
-import RIO.Process
-import Run
+import RIO.Process (mkDefaultProcessContext)
+import Run (run)
 
 main :: IO ()
 main = do
@@ -24,8 +23,10 @@ main = do
             )
       )
       empty
+
   lo <- logOptionsHandle stderr (optionsVerbose options)
   pc <- mkDefaultProcessContext
+
   withLogFunc lo $ \lf ->
     let app =
           App
