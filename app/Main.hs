@@ -2,11 +2,11 @@
 
 module Main (main) where
 
-import Import
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
 import RIO.Process (mkDefaultProcessContext)
-import Run (run)
+import Scrabble.Import
+import Scrabble.Run (run)
 
 main :: IO ()
 main = do

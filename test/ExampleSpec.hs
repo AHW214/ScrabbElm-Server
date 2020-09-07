@@ -1,6 +1,6 @@
 module ExampleSpec (spec) where
 
-import Import
+import Scrabble.Import
 import Test.Hspec
 import Test.Hspec.QuickCheck
 

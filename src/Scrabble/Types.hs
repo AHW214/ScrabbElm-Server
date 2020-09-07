@@ -1,4 +1,4 @@
-module Types where
+module Scrabble.Types where
 
 import RIO
 import RIO.Process (HasProcessContext (..), ProcessContext)
