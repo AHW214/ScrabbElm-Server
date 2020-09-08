@@ -20,7 +20,7 @@ app pendingConnection = do
     case message of
       "meme" -> do
         logInfo "Correct secret message - connection accepted!"
-        finally onMessage onDisconnect
+        onMessage `finally` onDisconnect
         where
           onMessage :: RIO App ()
           onMessage = forever $ do

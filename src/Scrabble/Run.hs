@@ -16,5 +16,6 @@ run port = do
   let wsApp = WebSockets.app
 
   logInfo $ "Listening on port " <> display port
+
   withRunInIO $ \runInIO ->
     Warp.run port $ websocketsOr WS.defaultConnectionOptions (runInIO . wsApp) rqApp
