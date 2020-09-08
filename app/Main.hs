@@ -1,7 +1,9 @@
 module Main (main) where
 
+import CLI (Options (..), readOptions)
+import RIO
 import RIO.Process (mkDefaultProcessContext)
-import Scrabble.Import
+import Scrabble.App (App (..))
 import Scrabble.Run (run)
 
 main :: IO ()
@@ -15,8 +17,7 @@ main = do
     let app =
           App
             { appLogFunc = lf,
-              appProcessContext = pc,
-              appOptions = options
+              appProcessContext = pc
             }
      in runRIO app run
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Scrabble.CLI (Options (..), readOptions) where
+module CLI (Options (..), readOptions) where
 
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
@@ -17,7 +17,7 @@ readOptions :: IO (Options, ())
 readOptions =
   simpleOptions
     $(simpleVersion Paths_scrabbelm_server.version)
-    "scrabbelm-server - The backend for a certain wordgame"
+    "scrabbelm-server - The backend for a certain online word game"
     ""
     parseOptions
     empty

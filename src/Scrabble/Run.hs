@@ -1,6 +1,7 @@
 module Scrabble.Run (run) where
 
-import Scrabble.Import (App, RIO, logInfo)
+import RIO (RIO, logInfo)
+import Scrabble.App (App)
 
 run :: RIO App ()
 run = do

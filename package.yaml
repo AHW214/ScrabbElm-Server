@@ -13,7 +13,6 @@ description: Please see the README on GitHub at <https://github.com/AHW214/Scrab
 
 dependencies:
 - base >= 4.11 && < 10
-- optparse-simple
 - rio >= 0.1.12.0
 
 default-extensions:
@@ -75,6 +74,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - optparse-simple
     - scrabbelm-server
 
 tests:

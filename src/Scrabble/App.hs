@@ -2,13 +2,10 @@ module Scrabble.App (App (..)) where
 
 import RIO
 import RIO.Process (HasProcessContext (..), ProcessContext)
-import Scrabble.CLI (Options)
 
 data App = App
   { appLogFunc :: !LogFunc,
-    appProcessContext :: !ProcessContext,
-    appOptions :: !Options
-    -- Add other app-specific configuration information here
+    appProcessContext :: !ProcessContext
   }
 
 instance HasLogFunc App where
