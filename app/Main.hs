@@ -30,6 +30,5 @@ main = do
 createLogOptions :: MonadIO m => Options -> m LogOptions
 createLogOptions Options {optionsLogLevel} =
   setLogMinLevel optionsLogLevel
-    . setLogUseColor True
-    . setLogUseTime True
-    <$> logOptionsHandle stdout False
+    . setLogUseLoc False
+    <$> logOptionsHandle stdout True
