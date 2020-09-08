@@ -1,6 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module CLI (Options (..), readOptions) where
+-- | Command-line interface for the program.
+module CLI
+  ( Options (..),
+    readOptions,
+  )
+where
 
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
