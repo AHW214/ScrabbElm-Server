@@ -1,5 +1,6 @@
 module Scrabble.Logger
-  ( LoggerOptions (..),
+  ( LogColor (..),
+    LoggerOptions (..),
     runLoggerThread,
   )
 where
@@ -10,46 +11,69 @@ import RIO.Time
 import System.Console.ANSI
 
 data LoggerOptions = LoggerOptions
-  { loggerMinLevel :: !LogLevel,
+  { loggerHandle :: !Handle,
+    loggerMinLevel :: !LogLevel,
     loggerQueueCapacity :: !Natural,
-    loggerUseColor :: !Bool
+    loggerUseColor :: !LogColor
   }
+
+data LogColor
+  = AlwaysColor
+  | NeverColor
+  | AutoColor
 
 type LoggerQueue = TBQueue Builder
 
 runLoggerThread :: LoggerOptions -> IO (LogFunc, Async ())
 runLoggerThread loggerOptions = do
-  loggerQueue <- newTBQueueIO $ loggerQueueCapacity loggerOptions
+  let LoggerOptions
+        { loggerHandle,
+          loggerQueueCapacity
+        } = loggerOptions
+
+  loggerQueue <- newTBQueueIO loggerQueueCapacity
 
   thread <- async $
     forever $ do
       msg <- atomically $ readTBQueue loggerQueue
-      hPutBuilder stdout $ msg <> flush
+      hPutBuilder loggerHandle $ msg <> flush
 
-  pure
-    ( concurrentLogFunc
-        loggerQueue
-        loggerOptions,
-      thread
-    )
+  logFunc <-
+    concurrentLogFunc
+      loggerQueue
+      loggerOptions
 
-concurrentLogFunc :: LoggerQueue -> LoggerOptions -> LogFunc
-concurrentLogFunc loggerQueue loggerOptions =
+  pure (logFunc, thread)
+
+concurrentLogFunc :: LoggerQueue -> LoggerOptions -> IO LogFunc
+concurrentLogFunc loggerQueue loggerOptions = do
   let LoggerOptions
-        { loggerMinLevel = logLevel,
-          loggerUseColor = useColor
+        { loggerHandle,
+          loggerMinLevel,
+          loggerUseColor
         } = loggerOptions
 
-      ansi =
+  useColor <-
+    case loggerUseColor of
+      AutoColor ->
+        hIsTerminalDevice loggerHandle
+      AlwaysColor ->
+        pure True
+      NeverColor ->
+        pure False
+
+  let ansi =
         if useColor
           then fromString . setSGRCode
           else const ""
-   in mkLogFunc $ \_ _ level ->
-        when (level >= logLevel)
-          . atomically
-          . writeTBQueue loggerQueue
-          . getUtf8Builder
-          <=< formatMessage ansi logLevel
+
+  pure $
+    mkLogFunc $ \_ _ level ->
+      when (level >= loggerMinLevel)
+        . atomically
+        . writeTBQueue loggerQueue
+        . getUtf8Builder
+        <=< formatMessage ansi level
 
 formatMessage :: ([SGR] -> Utf8Builder) -> LogLevel -> Utf8Builder -> IO Utf8Builder
 formatMessage ansi logLevel message = do

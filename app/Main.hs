@@ -14,13 +14,28 @@ import Scrabble.Run (run)
 -- | Run the program.
 main :: IO ()
 main = do
-  (Options {optionsLogLevel, optionsPort}, _) <- readOptions
+  ( Options
+      { optionsColor,
+        optionsPort,
+        optionsVerbose,
+        optionsVerbosity,
+        optionsSilent
+      },
+    _
+    ) <-
+    readOptions
 
-  let loggerOptions =
+  let logLevel
+        | optionsSilent = LevelError
+        | optionsVerbose = LevelDebug
+        | otherwise = optionsVerbosity
+
+      loggerOptions =
         LoggerOptions
-          { loggerMinLevel = optionsLogLevel,
+          { loggerHandle = stdout,
+            loggerMinLevel = logLevel,
             loggerQueueCapacity = 256,
-            loggerUseColor = True
+            loggerUseColor = optionsColor
           }
 
   (logFunc, _) <- runLoggerThread loggerOptions

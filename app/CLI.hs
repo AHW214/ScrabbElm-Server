@@ -13,11 +13,15 @@ import RIO
 import qualified RIO.Char as Char
 import qualified RIO.List as List
 import qualified RIO.Map as Map
+import Scrabble.Logger (LogColor (..))
 
 -- | Command-line options.
 data Options = Options
-  { optionsLogLevel :: !LogLevel,
-    optionsPort :: !Int
+  { optionsColor :: !LogColor,
+    optionsPort :: !Int,
+    optionsVerbose :: !Bool,
+    optionsVerbosity :: !LogLevel,
+    optionsSilent :: !Bool
   }
 
 -- | Read options from the command-line.
@@ -35,12 +39,12 @@ parseOptions :: Parser Options
 parseOptions =
   Options
     <$> option
-      parseLogLevel
-      ( long "log"
-          <> short 'l'
-          <> help ("Minimum level at which logs will be shown (choices: " <> logLevelChoices <> ")")
-          <> showDefaultWith renderLogLevel
-          <> value LevelInfo
+      parseLogColor
+      ( long "color"
+          <> short 'c'
+          <> help "Whether to color log messages (choices: ALWAYS, NEVER, AUTO)"
+          <> showDefaultWith renderLogColor
+          <> value AutoColor
           <> metavar "STR"
       )
     <*> option
@@ -51,6 +55,24 @@ parseOptions =
           <> showDefault
           <> value 3000
           <> metavar "INT"
+      )
+    <*> switch
+      ( long "verbose"
+          <> short 'v'
+          <> help "Show debug-level logs (--verbosity DEBUG)"
+      )
+    <*> option
+      parseLogLevel
+      ( long "verbosity"
+          <> help ("Minimum level at which logs will be shown (choices: " <> logLevelChoices <> ")")
+          <> showDefaultWith renderLogLevel
+          <> value LevelInfo
+          <> metavar "STR"
+      )
+    <*> switch
+      ( long "silent"
+          <> short 's'
+          <> help "Only show critical errors (--verbosity ERROR)"
       )
 
 -- | Parse a log level from a string.
@@ -89,6 +111,27 @@ tryRenderLogLevel =
   fmap stringToUpper
     . List.stripPrefix "Level"
     . show
+
+parseLogColor :: ReadM LogColor
+parseLogColor = eitherReader $ \colorOption ->
+  case stringToUpper colorOption of
+    "ALWAYS" ->
+      Right AlwaysColor
+    "NEVER" ->
+      Right NeverColor
+    "AUTO" ->
+      Right AutoColor
+    _ ->
+      Left $ "Invalid color option: '" <> colorOption <> "'"
+
+renderLogColor :: LogColor -> String
+renderLogColor = \case
+  AlwaysColor ->
+    "ALWAYS"
+  NeverColor ->
+    "NEVER"
+  AutoColor ->
+    "AUTO"
 
 -- | Convert a string to uppercase [rip in strings].
 stringToUpper :: String -> String
