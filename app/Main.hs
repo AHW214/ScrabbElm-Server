@@ -16,19 +16,16 @@ main :: IO ()
 main = do
   (Options {optionsLogLevel, optionsPort}, _) <- readOptions
 
-  logOptions <- createLogOptions optionsLogLevel
+  -- logOptions <- createLogOptions optionsLogLevel
+  (logFunc, _) <- runLoggerThread optionsLogLevel
   processContext <- mkDefaultProcessContext
 
-  (loggerQueue, _) <- runLoggerThread
-
-  withLogFunc logOptions $ \logFunc ->
-    let app =
-          App
-            { appLogFunc = logFunc,
-              appLoggerQueue = loggerQueue,
-              appProcessContext = processContext
-            }
-     in runRIO app $ run optionsPort
+  let app =
+        App
+          { appLogFunc = logFunc,
+            appProcessContext = processContext
+          }
+   in runRIO app $ run optionsPort
 
 -- | Create log options with the given minimum log level.
 createLogOptions :: MonadIO m => LogLevel -> m LogOptions
