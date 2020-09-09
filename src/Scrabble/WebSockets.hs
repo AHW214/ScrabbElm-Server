@@ -6,7 +6,8 @@ where
 import Network.WebSockets (Connection, PendingConnection)
 import qualified Network.WebSockets as WS
 import RIO
-import Scrabble.App (App)
+import Scrabble.App
+import Scrabble.Logger (concurrentLogFunc)
 
 app :: PendingConnection -> RIO App ()
 app pendingConnection = do
@@ -36,8 +37,13 @@ app pendingConnection = do
         closeConnection connection "Goodbye."
 
 withClientThread :: Connection -> RIO App () -> RIO App ()
-withClientThread connection action = withRunInIO $ \runInIO ->
-  WS.withPingThread connection pingInterval (pure ()) $ runInIO action
+withClientThread connection action = do
+  loggerQueue <- view loggerQueueL
+  let logFunc = concurrentLogFunc loggerQueue LevelInfo
+
+  withRunInIO $ \runInIO ->
+    WS.withPingThread connection pingInterval (pure ()) $
+      runInIO $ local (set logFuncL logFunc) action
 
 pingInterval :: Int
 pingInterval = 30

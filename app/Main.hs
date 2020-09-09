@@ -8,6 +8,7 @@ import CLI (Options (..), readOptions)
 import RIO
 import RIO.Process (mkDefaultProcessContext)
 import Scrabble.App (App (..))
+import Scrabble.Logger (runLoggerThread)
 import Scrabble.Run (run)
 
 -- | Run the program.
@@ -18,10 +19,13 @@ main = do
   logOptions <- createLogOptions optionsLogLevel
   processContext <- mkDefaultProcessContext
 
+  (loggerQueue, _) <- runLoggerThread
+
   withLogFunc logOptions $ \logFunc ->
     let app =
           App
             { appLogFunc = logFunc,
+              appLoggerQueue = loggerQueue,
               appProcessContext = processContext
             }
      in runRIO app $ run optionsPort
