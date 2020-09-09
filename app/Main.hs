@@ -13,9 +13,9 @@ import Scrabble.Run (run)
 -- | Run the program.
 main :: IO ()
 main = do
-  (options, _) <- readOptions
+  (Options {optionsLogLevel, optionsPort}, _) <- readOptions
 
-  logOptions <- createLogOptions options
+  logOptions <- createLogOptions optionsLogLevel
   processContext <- mkDefaultProcessContext
 
   withLogFunc logOptions $ \logFunc ->
@@ -24,11 +24,11 @@ main = do
             { appLogFunc = logFunc,
               appProcessContext = processContext
             }
-     in runRIO app run
+     in runRIO app $ run optionsPort
 
--- | Create log options from provided CLI options.
-createLogOptions :: MonadIO m => Options -> m LogOptions
-createLogOptions Options {optionsLogLevel} =
-  setLogMinLevel optionsLogLevel
+-- | Create log options with the given minimum log level.
+createLogOptions :: MonadIO m => LogLevel -> m LogOptions
+createLogOptions logLevel =
+  setLogMinLevel logLevel
     . setLogUseLoc False
     <$> logOptionsHandle stdout True

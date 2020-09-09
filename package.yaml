@@ -13,7 +13,13 @@ description: Please see the README on GitHub at <https://github.com/AHW214/Scrab
 
 dependencies:
 - base >= 4.11 && < 10
+- http-types
 - rio >= 0.1.12.0
+- wai
+- wai-cors
+- wai-websockets
+- warp
+- websockets
 
 default-extensions:
 - BangPatterns
