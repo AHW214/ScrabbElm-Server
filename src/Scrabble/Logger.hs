@@ -1,17 +1,25 @@
 module Scrabble.Logger
-  ( runLoggerThread,
+  ( LoggerOptions (..),
+    runLoggerThread,
   )
 where
 
 import Data.ByteString.Builder.Extra (flush)
 import RIO
 import RIO.Time
+import System.Console.ANSI
+
+data LoggerOptions = LoggerOptions
+  { loggerMinLevel :: !LogLevel,
+    loggerQueueCapacity :: !Natural,
+    loggerUseColor :: !Bool
+  }
 
 type LoggerQueue = TBQueue Builder
 
-runLoggerThread :: LogLevel -> IO (LogFunc, Async ())
-runLoggerThread logLevel = do
-  loggerQueue <- newTBQueueIO 256
+runLoggerThread :: LoggerOptions -> IO (LogFunc, Async ())
+runLoggerThread loggerOptions = do
+  loggerQueue <- newTBQueueIO $ loggerQueueCapacity loggerOptions
 
   thread <- async $
     forever $ do
@@ -21,24 +29,49 @@ runLoggerThread logLevel = do
   pure
     ( concurrentLogFunc
         loggerQueue
-        logLevel,
+        loggerOptions,
       thread
     )
 
-concurrentLogFunc :: LoggerQueue -> LogLevel -> LogFunc
-concurrentLogFunc loggerQueue logLevel = mkLogFunc $ \_ _ level ->
-  when (level >= logLevel) . tellLogger <=< formatMessage level
-  where
-    tellLogger :: Utf8Builder -> IO ()
-    tellLogger =
-      atomically
-        . writeTBQueue loggerQueue
-        . getUtf8Builder
+concurrentLogFunc :: LoggerQueue -> LoggerOptions -> LogFunc
+concurrentLogFunc loggerQueue loggerOptions =
+  let LoggerOptions
+        { loggerMinLevel = logLevel,
+          loggerUseColor = useColor
+        } = loggerOptions
 
-formatMessage :: LogLevel -> Utf8Builder -> IO Utf8Builder
-formatMessage logLevel message = do
+      ansi =
+        if useColor
+          then fromString . setSGRCode
+          else const ""
+   in mkLogFunc $ \_ _ level ->
+        when (level >= logLevel)
+          . atomically
+          . writeTBQueue loggerQueue
+          . getUtf8Builder
+          <=< formatMessage ansi logLevel
+
+formatMessage :: ([SGR] -> Utf8Builder) -> LogLevel -> Utf8Builder -> IO Utf8Builder
+formatMessage ansi logLevel message = do
   timestamp <- getTimestamp
-  pure $ timestamp <> " [" <> levelName logLevel <> "] " <> message
+
+  let timestampColor = ansi [SetColor Foreground Vivid Black]
+  let (levelName, levelColor) = levelNameAndColor logLevel
+  let levelHeader = "[" <> levelName <> "]"
+  let color = ansi [SetColor Foreground Dull levelColor]
+  let reset = ansi [Reset]
+
+  pure $
+    timestampColor
+      <> timestamp
+      <> reset
+      <> " "
+      <> color
+      <> levelHeader
+      <> reset
+      <> " "
+      <> message
+      <> "\n"
 
 getTimestamp :: IO Utf8Builder
 getTimestamp = fromString . format <$> getZonedTime
@@ -50,10 +83,10 @@ timestampLength :: Int
 timestampLength =
   length $ formatTime defaultTimeLocale "%F %T.000000" (UTCTime (ModifiedJulianDay 0) 0)
 
-levelName :: LogLevel -> Utf8Builder
-levelName = \case
-  LevelDebug -> "DEBUG"
-  LevelInfo -> "INFO"
-  LevelWarn -> "WARN"
-  LevelError -> "ERROR"
-  LevelOther level -> display level
+levelNameAndColor :: LogLevel -> (Utf8Builder, Color)
+levelNameAndColor = \case
+  LevelDebug -> ("DEBUG", Green)
+  LevelInfo -> ("INFO", Blue)
+  LevelWarn -> ("WARN", Yellow)
+  LevelError -> ("ERROR", Red)
+  LevelOther level -> (display level, Magenta)

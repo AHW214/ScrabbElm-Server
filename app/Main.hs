@@ -8,7 +8,7 @@ import CLI (Options (..), readOptions)
 import RIO
 import RIO.Process (mkDefaultProcessContext)
 import Scrabble.App (App (..))
-import Scrabble.Logger (runLoggerThread)
+import Scrabble.Logger (LoggerOptions (..), runLoggerThread)
 import Scrabble.Run (run)
 
 -- | Run the program.
@@ -16,8 +16,14 @@ main :: IO ()
 main = do
   (Options {optionsLogLevel, optionsPort}, _) <- readOptions
 
-  -- logOptions <- createLogOptions optionsLogLevel
-  (logFunc, _) <- runLoggerThread optionsLogLevel
+  let loggerOptions =
+        LoggerOptions
+          { loggerMinLevel = optionsLogLevel,
+            loggerQueueCapacity = 256,
+            loggerUseColor = True
+          }
+
+  (logFunc, _) <- runLoggerThread loggerOptions
   processContext <- mkDefaultProcessContext
 
   let app =
@@ -26,10 +32,3 @@ main = do
             appProcessContext = processContext
           }
    in runRIO app $ run optionsPort
-
--- | Create log options with the given minimum log level.
-createLogOptions :: MonadIO m => LogLevel -> m LogOptions
-createLogOptions logLevel =
-  setLogMinLevel logLevel
-    . setLogUseLoc False
-    <$> logOptionsHandle stdout True

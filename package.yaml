@@ -12,6 +12,7 @@ extra-source-files:
 description: Please see the README on GitHub at <https://github.com/AHW214/ScrabbElm-Server#readme>
 
 dependencies:
+- ansi-terminal
 - base >= 4.11 && < 10
 - bytestring
 - http-types
