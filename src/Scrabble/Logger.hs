@@ -1,6 +1,7 @@
 module Scrabble.Logger
   ( LogColor (..),
     LoggerOptions (..),
+    logLevelNameAndColor,
     runLoggerThread,
   )
 where
@@ -80,7 +81,7 @@ formatMessage ansi logLevel message = do
   timestamp <- getTimestamp
 
   let timestampColor = ansi [SetColor Foreground Vivid Black]
-  let (levelName, levelColor) = levelNameAndColor logLevel
+  let (levelName, levelColor) = logLevelNameAndColor logLevel
   let levelHeader = "[" <> levelName <> "]"
   let color = ansi [SetColor Foreground Dull levelColor]
   let reset = ansi [Reset]
@@ -107,8 +108,8 @@ timestampLength :: Int
 timestampLength =
   length $ formatTime defaultTimeLocale "%F %T.000000" (UTCTime (ModifiedJulianDay 0) 0)
 
-levelNameAndColor :: LogLevel -> (Utf8Builder, Color)
-levelNameAndColor = \case
+logLevelNameAndColor :: LogLevel -> (Utf8Builder, Color)
+logLevelNameAndColor = \case
   LevelDebug -> ("DEBUG", Green)
   LevelInfo -> ("INFO", Blue)
   LevelWarn -> ("WARN", Yellow)

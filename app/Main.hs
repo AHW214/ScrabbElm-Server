@@ -17,16 +17,16 @@ main = do
   ( Options
       { optionsColor,
         optionsPort,
+        optionsQuiet,
         optionsVerbose,
-        optionsVerbosity,
-        optionsSilent
+        optionsVerbosity
       },
     _
     ) <-
     readOptions
 
   let logLevel
-        | optionsSilent = LevelError
+        | optionsQuiet = LevelError
         | optionsVerbose = LevelDebug
         | otherwise = optionsVerbosity
 
