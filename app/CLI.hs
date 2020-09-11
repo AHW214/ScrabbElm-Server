@@ -10,14 +10,17 @@ where
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
 import RIO
-import qualified RIO.Char as Char
 import qualified RIO.List as List
-import qualified RIO.Map as Map
+import qualified RIO.Text as Text
+import Scrabble.Logger (ColorOption (..), logLevelNameAndColor)
 
 -- | Command-line options.
 data Options = Options
-  { optionsLogLevel :: !LogLevel,
-    optionsPort :: !Int
+  { optionsColor :: !ColorOption,
+    optionsPort :: !Int,
+    optionsQuiet :: !Bool,
+    optionsVerbose :: !Bool,
+    optionsVerbosity :: !LogLevel
   }
 
 -- | Read options from the command-line.
@@ -35,12 +38,20 @@ parseOptions :: Parser Options
 parseOptions =
   Options
     <$> option
-      parseLogLevel
-      ( long "log"
-          <> short 'l'
-          <> help ("Minimum level at which logs will be shown (choices: " <> logLevelChoices <> ")")
-          <> showDefaultWith renderLogLevel
-          <> value LevelInfo
+      parseColorOption
+      ( long "color"
+          <> short 'c'
+          <> help
+            ( "Whether to color log messages "
+                <> renderChoices
+                  renderColorOption
+                  [ AlwaysColor,
+                    NeverColor,
+                    AutoColor
+                  ]
+            )
+          <> showDefaultWith renderColorOption
+          <> value AutoColor
           <> metavar "STR"
       )
     <*> option
@@ -52,44 +63,93 @@ parseOptions =
           <> value 3000
           <> metavar "INT"
       )
+    <*> switch
+      ( long "quiet"
+          <> short 'q'
+          <> help
+            ( "Only show critical errors "
+                <> exampleVerbosity
+                  LevelError
+            )
+      )
+    <*> switch
+      ( long "verbose"
+          <> short 'v'
+          <> help
+            ( "Show debug-level information "
+                <> exampleVerbosity
+                  LevelDebug
+            )
+      )
+    <*> option
+      parseLogLevel
+      ( long "verbosity"
+          <> help
+            ( "Minimum level at which logs will be shown "
+                <> renderChoices
+                  renderLogLevel
+                  [ LevelDebug,
+                    LevelInfo,
+                    LevelWarn,
+                    LevelError
+                  ]
+            )
+          <> showDefaultWith renderLogLevel
+          <> value LevelInfo
+          <> metavar "STR"
+      )
+
+-- | Render a color option as a string.
+renderColorOption :: ColorOption -> String
+renderColorOption = \case
+  AlwaysColor ->
+    "always"
+  NeverColor ->
+    "never"
+  AutoColor ->
+    "auto"
+
+-- | Parse a color option from a string.
+parseColorOption :: ReadM ColorOption
+parseColorOption = eitherReader $ \case
+  "always" ->
+    Right AlwaysColor
+  "never" ->
+    Right NeverColor
+  "auto" ->
+    Right AutoColor
+  colorOption ->
+    Left $ "Invalid color option: '" <> colorOption <> "'"
+
+-- | Render an example verbosity option with the given log level.
+exampleVerbosity :: LogLevel -> String
+exampleVerbosity logLevel =
+  "(--verbosity " <> renderLogLevel logLevel <> ")"
+
+-- | Render a log level as a string.
+renderLogLevel :: LogLevel -> String
+renderLogLevel =
+  Text.unpack
+    . Text.toLower
+    . textDisplay
+    . fst
+    . logLevelNameAndColor
 
 -- | Parse a log level from a string.
 parseLogLevel :: ReadM LogLevel
-parseLogLevel = eitherReader $ \level ->
-  case Map.lookup (stringToUpper level) logLevelMap of
-    Just logLevel ->
-      Right logLevel
-    _ ->
-      Left $ "Unknown log level: '" <> level <> "'"
+parseLogLevel = eitherReader $ \case
+  "debug" ->
+    Right LevelDebug
+  "info" ->
+    Right LevelInfo
+  "warn" ->
+    Right LevelWarn
+  "error" ->
+    Right LevelError
+  level ->
+    Left $ "Unknown log level: '" <> level <> "'"
 
--- | Possible log levels, rendered as a string.
-logLevelChoices :: String
-logLevelChoices = List.intercalate ", " $ Map.keys logLevelMap
-
--- | Map of names to log levels.
-logLevelMap :: Map String LogLevel
-logLevelMap = Map.fromList logLevelsWithNames
-  where
-    logLevelsWithNames :: [(String, LogLevel)]
-    logLevelsWithNames = mapMaybe groupWithName logLevels
-
-    groupWithName :: LogLevel -> Maybe (String, LogLevel)
-    groupWithName logLevel = (,logLevel) <$> tryRenderLogLevel logLevel
-
-    logLevels :: [LogLevel]
-    logLevels = [LevelDebug, LevelInfo, LevelWarn, LevelError]
-
--- | Render a log level as as string [accounting for hopefully impossible failure].
-renderLogLevel :: LogLevel -> String
-renderLogLevel = fromMaybe "INVALID LOG LEVEL" . tryRenderLogLevel
-
--- | Try to render a log level as a string.
-tryRenderLogLevel :: LogLevel -> Maybe String
-tryRenderLogLevel =
-  fmap stringToUpper
-    . List.stripPrefix "Level"
-    . show
-
--- | Convert a string to uppercase [rip in strings].
-stringToUpper :: String -> String
-stringToUpper = fmap Char.toUpper
+-- | Render a list of choices for the input to an option.
+renderChoices :: (a -> String) -> [a] -> String
+renderChoices render choices =
+  "(choices: " <> List.intercalate ", " (render <$> choices) <> ")"

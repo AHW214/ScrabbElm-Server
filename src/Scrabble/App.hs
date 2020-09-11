@@ -1,4 +1,7 @@
-module Scrabble.App (App (..)) where
+module Scrabble.App
+  ( App (..),
+  )
+where
 
 import RIO
 import RIO.Process (HasProcessContext (..), ProcessContext)

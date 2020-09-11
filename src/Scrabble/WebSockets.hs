@@ -6,7 +6,7 @@ where
 import Network.WebSockets (Connection, PendingConnection)
 import qualified Network.WebSockets as WS
 import RIO
-import Scrabble.App (App)
+import Scrabble.App
 
 app :: PendingConnection -> RIO App ()
 app pendingConnection = do
