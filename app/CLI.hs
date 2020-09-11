@@ -12,11 +12,11 @@ import qualified Paths_scrabbelm_server
 import RIO
 import qualified RIO.List as List
 import qualified RIO.Text as Text
-import Scrabble.Logger (LogColor (..), logLevelNameAndColor)
+import Scrabble.Logger (ColorOption (..), logLevelNameAndColor)
 
 -- | Command-line options.
 data Options = Options
-  { optionsColor :: !LogColor,
+  { optionsColor :: !ColorOption,
     optionsPort :: !Int,
     optionsQuiet :: !Bool,
     optionsVerbose :: !Bool,
@@ -38,11 +38,11 @@ parseOptions :: Parser Options
 parseOptions =
   Options
     <$> option
-      parseLogColor
+      parseColorOption
       ( long "color"
           <> short 'c'
-          <> help ("Whether to color log messages " <> renderChoices logColorOptions)
-          <> showDefaultWith renderLogColor
+          <> help ("Whether to color log messages " <> renderChoices colorOptions)
+          <> showDefaultWith renderColorOption
           <> value AutoColor
           <> metavar "STR"
       )
@@ -68,14 +68,15 @@ parseOptions =
     <*> option
       parseLogLevel
       ( long "verbosity"
-          <> help ("Minimum level at which logs will be shown " <> renderChoices logLevelOptions)
+          <> help ("Minimum level at which logs will be shown " <> renderChoices logLevels)
           <> showDefaultWith renderLogLevel
           <> value LevelInfo
           <> metavar "STR"
       )
 
-renderLogColor :: LogColor -> String
-renderLogColor = \case
+-- | Render a color option as a string.
+renderColorOption :: ColorOption -> String
+renderColorOption = \case
   AlwaysColor ->
     "always"
   NeverColor ->
@@ -83,8 +84,9 @@ renderLogColor = \case
   AutoColor ->
     "auto"
 
-parseLogColor :: ReadM LogColor
-parseLogColor = eitherReader $ \case
+-- | Parse a color option from a string.
+parseColorOption :: ReadM ColorOption
+parseColorOption = eitherReader $ \case
   "always" ->
     Right AlwaysColor
   "never" ->
@@ -94,13 +96,15 @@ parseLogColor = eitherReader $ \case
   colorOption ->
     Left $ "Invalid color option: '" <> colorOption <> "'"
 
-logColorOptions :: [String]
-logColorOptions =
+-- | Possible color options.
+colorOptions :: [String]
+colorOptions =
   [ "always",
     "never",
     "auto"
   ]
 
+-- | Render a log level as a string.
 renderLogLevel :: LogLevel -> String
 renderLogLevel =
   Text.unpack
@@ -123,13 +127,15 @@ parseLogLevel = eitherReader $ \case
   level ->
     Left $ "Unknown log level: '" <> level <> "'"
 
-logLevelOptions :: [String]
-logLevelOptions =
+-- | Possible log levels.
+logLevels :: [String]
+logLevels =
   [ "debug",
     "info",
     "warn",
     "error"
   ]
 
+-- | Render a list of choices for the input to an option.
 renderChoices :: [String] -> String
 renderChoices choices = "(choices: " <> List.intercalate ", " choices <> ")"
