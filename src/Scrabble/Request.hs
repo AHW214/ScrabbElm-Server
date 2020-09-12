@@ -3,27 +3,37 @@ module Scrabble.Request
   )
 where
 
-import Network.HTTP.Types (Status, status200, status501)
-import Network.HTTP.Types.Header (ResponseHeaders, hCacheControl, hContentType)
-import Network.Wai (Application, requestMethod, responseLBS)
+import Network.HTTP.Types
+import Network.Wai
 import RIO
 import qualified RIO.ByteString.Lazy as BL
+import Scrabble.Authentication
 
 app :: Application
-app request respond =
-  let (status, headers, body) =
-        case requestMethod request of
-          "GET" -> get
-          _ -> unsupported
-   in respond $ responseLBS status headers body
+app request respond = do
+  (status, headers, body) <-
+    case (requestMethod request, pathInfo request) of
+      ("GET", ["auth"]) -> do
+        jwt <-
+          createClientJWT $
+            ClientJWTParams
+              { jwtClientId = "test",
+                jwtExpireIn = 1000,
+                jwtSecret = "secret"
+              }
+
+        pure $ authResponse jwt
+      _ -> pure unsupported
+
+  respond $ responseLBS status headers body
   where
-    get :: (Status, ResponseHeaders, BL.ByteString)
-    get =
+    authResponse :: ClientJWT -> (Status, ResponseHeaders, BL.ByteString)
+    authResponse jwt =
       ( status200,
         [ (hContentType, "text/plain; charset=utf-8"),
           (hCacheControl, "no-cache")
         ],
-        "meme"
+        encodeClientJWT jwt
       )
 
     unsupported :: (Status, ResponseHeaders, BL.ByteString)
