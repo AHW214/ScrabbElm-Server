@@ -12,10 +12,11 @@ import qualified Scrabble.WebSockets as WebSockets
 
 run :: Port -> RIO App ()
 run port = do
-  let rqApp = simpleCors $ Request.app
-  let wsApp = WebSockets.app
-
   logInfo $ "Listening on port " <> display port
 
   withRunInIO $ \runInIO ->
-    Warp.run port $ websocketsOr WS.defaultConnectionOptions (runInIO . wsApp) rqApp
+    Warp.run port $
+      websocketsOr
+        WS.defaultConnectionOptions
+        (runInIO . WebSockets.app)
+        (simpleCors $ \req -> runInIO . Request.app req)

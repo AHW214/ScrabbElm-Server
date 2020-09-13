@@ -7,7 +7,7 @@ where
 import CLI (Options (..), readOptions)
 import RIO
 import RIO.Process (mkDefaultProcessContext)
-import Scrabble.App (App (..))
+import Scrabble.App
 import Scrabble.Logger (LoggerOptions (..), runLoggerThread)
 import Scrabble.Run (run)
 
@@ -39,11 +39,13 @@ main = do
           }
 
   (logFunc, _) <- runLoggerThread loggerOptions
+  pendingClients <- newPendingClients
   processContext <- mkDefaultProcessContext
 
   let app =
         App
           { appLogFunc = logFunc,
+            appPendingClients = pendingClients,
             appProcessContext = processContext
           }
    in runRIO app $ run optionsPort

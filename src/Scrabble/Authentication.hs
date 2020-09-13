@@ -17,12 +17,14 @@ import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
 import qualified RIO.Text as Text
 import RIO.Time
+import Scrabble.Client (Client)
+import Scrabble.Common (ID)
 import Web.JWT
 
 newtype ClientJWT = ClientJWT Text
 
 data ClientJWTParams = ClientJWTParams
-  { jwtClientId :: !Text,
+  { jwtClientId :: !(ID Client),
     jwtExpireIn :: !Integer,
     jwtSecret :: !Secret
   }
@@ -38,11 +40,11 @@ instance FromJSON Secret where
 createSecret :: Text -> Secret
 createSecret = Secret . hmacSecret
 
-clientIdFromJWT :: Signer -> Text -> Maybe Text
-clientIdFromJWT signer =
+clientIdFromJWT :: Secret -> Text -> Maybe (ID Client)
+clientIdFromJWT (Secret signer) =
   getClientId <=< decodeAndVerifySignature signer
   where
-    getClientId :: JWT VerifiedJWT -> Maybe Text
+    getClientId :: JWT VerifiedJWT -> Maybe (ID Client)
     getClientId =
       maybeFromJSON
         <=< Map.lookup "cid"
@@ -79,7 +81,7 @@ createClientJWT clientJwtParams =
 
     clientClaims :: [(Text, JSON.Value)]
     clientClaims =
-      [ ("cid", JSON.String clientId)
+      [ ("cid", toJSON clientId)
       ]
 
     ClientJWTParams
