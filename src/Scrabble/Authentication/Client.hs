@@ -37,11 +37,8 @@ class HasClientAuth env where
   clientAuthL :: Lens' env ClientAuth
 
 cacheClient :: (MonadIO m, MonadReader env m, HasClientAuth env) => m (ClientToken Encoded)
-cacheClient = withClientCache $ \cache -> do
-  let clientId = "todo"
-  token <- createClientToken clientId
-  atomically $ Cache.add clientId cache
-  pure token
+cacheClient =
+  withClientCache $ createClientToken <=< atomically . Cache.add
 
 isClientCached :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m Bool
 isClientCached clientId =
@@ -57,6 +54,10 @@ withClientCache :: (MonadIO m, MonadReader env m, HasClientAuth env) => (Cache (
 withClientCache operation = do
   ClientAuth {authClientCache = ClientCache cache} <- view clientAuthL
   operation cache
+
+createCache :: STM (ClientCache)
+createCache =
+  ClientCache <$> Cache.create "1" (\cid -> cid <> "1") -- todo
 
 createClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m (ClientToken Encoded)
 createClientToken clientId = do
