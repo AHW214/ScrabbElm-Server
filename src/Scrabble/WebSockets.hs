@@ -3,7 +3,7 @@ module Scrabble.WebSockets
   )
 where
 
-import Network.WebSockets (Connection, PendingConnection)
+import Network.WebSockets (Connection, PendingConnection, RequestHead (..), pendingRequest)
 import qualified Network.WebSockets as WS
 import RIO
 import Scrabble.App
@@ -13,6 +13,7 @@ import Scrabble.Common (ID)
 
 app :: (HasLogFunc env, HasPendingClients env) => PendingConnection -> RIO env ()
 app pendingConnection = do
+  logInfo $ displayBytesUtf8 $ requestPath $ pendingRequest pendingConnection
   connection <- acceptRequest pendingConnection
   logInfo "Incoming pending connection!"
 
