@@ -11,41 +11,41 @@ import RIO
 import qualified RIO.Set as Set
 import Scrabble.Common
 
-data Cache a = Cache
-  { createUnique :: a -> a,
-    state :: TMVar (State a)
+data Cache g a = Cache
+  { gen :: g -> (a, g),
+    state :: TMVar (State g a)
   }
 
-data State a = State
-  { currentUnique :: a,
+data State g a = State
+  { seed :: g,
     uniques :: Set a
   }
 
-add :: Ord a => Cache a -> STM a
-add Cache {createUnique, state} =
-  stateTMVar state $ \State {currentUnique, uniques} ->
-    let newUnique = createUnique currentUnique
-     in ( newUnique,
+add :: Ord a => Cache g a -> STM a
+add Cache {gen, state} =
+  stateTMVar state $ \State {seed, uniques} ->
+    let (unique, newSeed) = gen seed
+     in ( unique,
           State
-            { currentUnique = newUnique,
-              uniques = Set.insert newUnique uniques
+            { seed = newSeed,
+              uniques = Set.insert unique uniques
             }
         )
 
-has :: Ord a => a -> Cache a -> STM Bool
+has :: Ord a => a -> Cache g a -> STM Bool
 has unique Cache {state} =
   withTMVar' state $ Set.member unique . uniques
 
-remove :: Ord a => a -> Cache a -> STM ()
+remove :: Ord a => a -> Cache g a -> STM ()
 remove unique Cache {state} =
   modifyTMVar' state $ \s@State {uniques} ->
     s {uniques = Set.delete unique uniques}
 
-create :: a -> (a -> a) -> STM (Cache a)
-create initialUnique createUnique =
-  Cache createUnique
+create :: g -> (g -> (a, g)) -> STM (Cache g a)
+create initSeed gen =
+  Cache gen
     <$> newTMVar
       State
-        { currentUnique = initialUnique,
+        { seed = initSeed,
           uniques = Set.empty
         }

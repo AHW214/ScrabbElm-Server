@@ -5,6 +5,7 @@ module Scrabble.Authentication.Client
     HasClientAuth,
     Secret,
     cacheClient,
+    createCache,
     isClientCached,
     uncacheClient,
   )
@@ -31,7 +32,7 @@ data ClientToken a where
   Decoded :: Token Decoded -> ClientToken Decoded
   Encoded :: Token Encoded -> ClientToken Encoded
 
-data ClientCache = ClientCache (Cache (ID Client))
+data ClientCache = ClientCache (Cache Int (ID Client))
 
 class HasClientAuth env where
   clientAuthL :: Lens' env ClientAuth
@@ -50,14 +51,14 @@ uncacheClient clientId =
   withClientCache $
     atomically . Cache.remove clientId
 
-withClientCache :: (MonadIO m, MonadReader env m, HasClientAuth env) => (Cache (ID Client) -> m a) -> m a
+withClientCache :: (MonadIO m, MonadReader env m, HasClientAuth env) => (Cache Int (ID Client) -> m a) -> m a
 withClientCache operation = do
   ClientAuth {authClientCache = ClientCache cache} <- view clientAuthL
   operation cache
 
 createCache :: STM (ClientCache)
 createCache =
-  ClientCache <$> Cache.create "1" (\cid -> cid <> "1") -- todo
+  ClientCache <$> Cache.create 0 (\count -> (fromString $ show count, count + 1))
 
 createClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m (ClientToken Encoded)
 createClientToken clientId = do
