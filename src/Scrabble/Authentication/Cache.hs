@@ -1,5 +1,6 @@
 module Scrabble.Authentication.Cache
-  ( add,
+  ( Cache,
+    add,
     has,
     remove,
   )
@@ -7,19 +8,7 @@ where
 
 import RIO
 import qualified RIO.Set as Set
-import Scrabble.Client
 import Scrabble.Common
-
-type ClientCache = Cache (ID Client)
-
-addClient :: ID Client -> ClientCache -> STM ()
-addClient = add
-
-hasClient :: ID Client -> ClientCache -> STM Bool
-hasClient = has
-
-removeClient :: ID Client -> ClientCache -> STM ()
-removeClient = remove
 
 newtype Cache a = Cache (TMVar (Set a))
 

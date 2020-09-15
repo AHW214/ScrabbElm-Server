@@ -1,5 +1,6 @@
 module Scrabble.Client
   ( Client,
+    ID,
   )
 where
 
