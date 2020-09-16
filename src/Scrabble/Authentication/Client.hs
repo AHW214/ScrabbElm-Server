@@ -2,11 +2,15 @@ module Scrabble.Authentication.Client
   ( ClientAuth (..),
     ClientCache,
     ClientToken,
+    Decoded,
+    Encoded,
     HasClientAuth,
     Secret,
     cacheClient,
     createCache,
+    decodeClientToken,
     isClientCached,
+    retrieveClientId,
     uncacheClient,
   )
 where
@@ -37,6 +41,21 @@ data ClientCache = ClientCache (Cache Int (ID Client))
 class HasClientAuth env where
   clientAuthL :: Lens' env ClientAuth
 
+data ClientAuthError
+  = MalformedToken
+  | ClientIdMissing
+
+instance Display ClientAuthError where
+  display err =
+    "Client authentication failed: " <> reason
+    where
+      reason =
+        case err of
+          MalformedToken ->
+            "inbound token was malformed"
+          ClientIdMissing ->
+            "client did not specify an ID"
+
 cacheClient :: (MonadIO m, MonadReader env m, HasClientAuth env) => m (ClientToken Encoded)
 cacheClient =
   withClientCache $ createClientToken <=< atomically . Cache.add
@@ -59,6 +78,23 @@ withClientCache operation = do
 createCache :: STM (ClientCache)
 createCache =
   ClientCache <$> Cache.create 0 (\count -> (fromString $ show count, count + 1))
+
+retrieveClientId :: ClientToken Decoded -> Either ClientAuthError (ID Client)
+retrieveClientId (Decoded token) =
+  case retrieveClaim "cid" token of
+    Just clientId ->
+      Right clientId
+    Nothing ->
+      Left ClientIdMissing
+
+decodeClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => Text -> m (Either ClientAuthError (ClientToken Decoded))
+decodeClientToken tokenText = do
+  ClientAuth {authTokenSecret = secret} <- view clientAuthL
+  pure $ case decodeFromText secret tokenText of
+    Just token ->
+      Right $ Decoded token
+    Nothing ->
+      Left MalformedToken
 
 createClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m (ClientToken Encoded)
 createClientToken clientId = do

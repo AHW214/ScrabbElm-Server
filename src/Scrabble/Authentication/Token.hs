@@ -45,8 +45,8 @@ toLazyByteString :: Token Encoded -> BL.ByteString
 toLazyByteString (Encoded text) =
   BL.fromStrict $ Text.encodeUtf8 text
 
-decodeFromText :: Signer -> Text -> Maybe (Token Decoded)
-decodeFromText signer =
+decodeFromText :: Secret -> Text -> Maybe (Token Decoded)
+decodeFromText (Secret signer) =
   fmap Decoded . decodeAndVerifySignature signer
 
 create :: Maybe NominalDiffTime -> Secret -> [(Text, JSON.Value)] -> Token Encoded
