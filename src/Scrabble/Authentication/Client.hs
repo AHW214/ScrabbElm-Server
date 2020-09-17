@@ -7,7 +7,7 @@ module Scrabble.Authentication.Client
     Encoded,
     HasClientAuth (..),
     Secret,
-    cacheClient,
+    cacheClientWithTimeout,
     clientTokenToLazyByteString,
     createCache,
     decodeClientToken,
@@ -55,9 +55,28 @@ instance Display ClientAuthError where
     ClientIdMissing ->
       "Client did not specify an ID"
 
-cacheClient :: (MonadIO m, MonadReader env m, HasClientAuth env) => m (ClientToken Encoded)
-cacheClient =
-  withClientCache $ createClientToken <=< atomically . Cache.add
+cacheClientWithTimeout ::
+  ( MonadIO m,
+    MonadUnliftIO m,
+    MonadReader env m,
+    HasClientAuth env
+  ) =>
+  m (ClientToken Encoded, Async ())
+cacheClientWithTimeout = do
+  ClientAuth
+    { authClientCache = ClientCache cache,
+      authExpireMilliseconds = millis
+    } <-
+    view clientAuthL
+
+  clientId <- atomically $ Cache.add cache
+  clientToken <- createClientToken clientId
+
+  thread <- async $ do
+    threadDelay $ fromInteger $ 1000 * millis
+    atomically $ Cache.remove clientId cache
+
+  pure (clientToken, thread)
 
 isClientCached :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m Bool
 isClientCached clientId =

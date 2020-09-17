@@ -21,7 +21,7 @@ app request respond = do
       ("GET", ["auth"]) -> do
         logInfo "Client requested authentication!"
 
-        token <- cacheClient
+        (token, _) <- cacheClientWithTimeout
 
         pure
           ( status200,
