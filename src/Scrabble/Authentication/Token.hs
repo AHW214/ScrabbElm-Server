@@ -30,6 +30,12 @@ data Encoded
 
 newtype Secret = Secret Signer
 
+instance IsString Secret where
+  fromString = createSecret . fromString
+
+createSecret :: Text -> Secret
+createSecret = Secret . hmacSecret
+
 retrieveClaim :: forall a. FromJSON a => Text -> Token Decoded -> Maybe a
 retrieveClaim claim (Decoded jwt) = fromJWT jwt
   where

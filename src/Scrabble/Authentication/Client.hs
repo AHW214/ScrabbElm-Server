@@ -1,12 +1,14 @@
 module Scrabble.Authentication.Client
   ( ClientAuth (..),
+    ClientAuthError,
     ClientCache,
     ClientToken,
     Decoded,
     Encoded,
-    HasClientAuth,
+    HasClientAuth (..),
     Secret,
     cacheClient,
+    clientTokenToLazyByteString,
     createCache,
     decodeClientToken,
     isClientCached,
@@ -19,10 +21,11 @@ import Data.Aeson (toJSON)
 import qualified Data.Aeson as JSON
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import RIO
+import qualified RIO.ByteString.Lazy as BL
 import RIO.Time
-import Scrabble.Authentication.Cache
+import Scrabble.Authentication.Cache (Cache)
 import qualified Scrabble.Authentication.Cache as Cache
-import Scrabble.Authentication.Token
+import Scrabble.Authentication.Token (Decoded, Encoded, Secret, Token)
 import qualified Scrabble.Authentication.Token as Token
 import Scrabble.Client (Client, ID)
 
@@ -46,15 +49,11 @@ data ClientAuthError
   | ClientIdMissing
 
 instance Display ClientAuthError where
-  display err =
-    "Client authentication failed: " <> reason
-    where
-      reason =
-        case err of
-          MalformedToken ->
-            "inbound token was malformed"
-          ClientIdMissing ->
-            "client did not specify an ID"
+  display = \case
+    MalformedToken ->
+      "Token text was malformed"
+    ClientIdMissing ->
+      "Client did not specify an ID"
 
 cacheClient :: (MonadIO m, MonadReader env m, HasClientAuth env) => m (ClientToken Encoded)
 cacheClient =
@@ -81,16 +80,20 @@ createCache =
 
 retrieveClientId :: ClientToken Decoded -> Either ClientAuthError (ID Client)
 retrieveClientId (Decoded token) =
-  case retrieveClaim "cid" token of
+  case Token.retrieveClaim "cid" token of
     Just clientId ->
       Right clientId
     Nothing ->
       Left ClientIdMissing
 
+clientTokenToLazyByteString :: ClientToken Encoded -> BL.ByteString
+clientTokenToLazyByteString (Encoded token) =
+  Token.toLazyByteString token
+
 decodeClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => Text -> m (Either ClientAuthError (ClientToken Decoded))
 decodeClientToken tokenText = do
   ClientAuth {authTokenSecret = secret} <- view clientAuthL
-  pure $ case decodeFromText secret tokenText of
+  pure $ case Token.decodeFromText secret tokenText of
     Just token ->
       Right $ Decoded token
     Nothing ->

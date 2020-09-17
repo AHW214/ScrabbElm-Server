@@ -8,6 +8,8 @@ import CLI (Options (..), readOptions)
 import RIO
 import RIO.Process (mkDefaultProcessContext)
 import Scrabble.App
+import Scrabble.Authentication.Client (ClientAuth (..))
+import qualified Scrabble.Authentication.Client as Auth
 import Scrabble.Logger (LoggerOptions (..), runLoggerThread)
 import Scrabble.Run (run)
 
@@ -38,14 +40,19 @@ main = do
             loggerUseColor = optionsColor
           }
 
+  clientCache <- atomically $ Auth.createCache
   (logFunc, _) <- runLoggerThread loggerOptions
-  pendingClients <- newPendingClients
   processContext <- mkDefaultProcessContext
 
   let app =
         App
-          { appLogFunc = logFunc,
-            appPendingClients = pendingClients,
+          { appClientAuth =
+              ClientAuth
+                { authClientCache = clientCache,
+                  authExpireMilliseconds = 5000,
+                  authTokenSecret = "secret"
+                },
+            appLogFunc = logFunc,
             appProcessContext = processContext
           }
    in runRIO app $ run optionsPort

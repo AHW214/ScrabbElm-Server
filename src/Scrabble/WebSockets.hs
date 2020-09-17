@@ -3,58 +3,94 @@ module Scrabble.WebSockets
   )
 where
 
+import Control.Monad.Except
+import qualified Network.HTTP.Types as HTTP
 import Network.WebSockets (Connection, PendingConnection, RequestHead (..), pendingRequest)
 import qualified Network.WebSockets as WS
 import RIO
-import Scrabble.App
-import qualified Scrabble.Authentication as Auth
+import Scrabble.Authentication.Client
 import Scrabble.Client (Client)
 import Scrabble.Common (ID)
 
-app :: (HasLogFunc env, HasPendingClients env) => PendingConnection -> RIO env ()
+data WebSocketAuthError
+  = ClientAuthError ClientAuthError
+  | RequestMissingToken
+  | RequestTokenDecodeError UnicodeException
+  | UnknownClientId (ID Client)
+
+instance Display WebSocketAuthError where
+  display = \case
+    ClientAuthError err ->
+      "Client authentication error: " <> display err
+    RequestMissingToken ->
+      "Token missing from websocket request"
+    RequestTokenDecodeError err ->
+      "Error decoding request token: " <> displayShow err
+    UnknownClientId clientId ->
+      "Unknown client ID '" <> display clientId <> "' (probably timed out)"
+
+app :: (HasClientAuth env, HasLogFunc env) => PendingConnection -> RIO env ()
 app pendingConnection = do
-  logInfo $ displayBytesUtf8 $ requestPath $ pendingRequest pendingConnection
-  connection <- acceptRequest pendingConnection
   logInfo "Incoming pending connection!"
 
-  withClientThread connection $ do
-    authenticated <- authenticate connection
+  runExceptT (authenticate pendingConnection) >>= \case
+    Right clientId -> do
+      connection <- acceptRequest pendingConnection
+      logInfo $ "Connection accepted as " <> display clientId <> "!"
+      serveClient connection
+    Left err -> do
+      logWarn $ "Connection failed to authenticate: " <> display err
+      rejectRequest pendingConnection $ encodeUtf8 $ textDisplay err
 
-    case authenticated of
-      Right clientId -> do
-        logInfo $ "Connection accepted as " <> display clientId <> "!"
-        onMessage `finally` onDisconnect
-        where
-          onMessage :: HasLogFunc env => RIO env ()
-          onMessage = forever $ do
-            msg <- receiveMessage connection
-            logInfo $ "Connection said '" <> display msg <> "'"
-            sendMessage connection $ "You said: " <> msg
+serveClient :: forall env. HasLogFunc env => Connection -> RIO env ()
+serveClient connection =
+  withClientThread connection $ onMessage `finally` onDisconnect
+  where
+    onMessage :: RIO env ()
+    onMessage = forever $ do
+      msg <- receiveMessage connection
+      logInfo $ "Connection said '" <> display msg <> "'"
+      sendMessage connection $ "You said: " <> msg
 
-          onDisconnect :: HasLogFunc env => RIO env ()
-          onDisconnect =
-            logInfo "Goodbye connection"
-      Left badAuth -> do
-        logWarn $ "Connection failed to authenticate: " <> badAuth
-        closeConnection connection "Goodbye."
-
-authenticate :: HasPendingClients env => Connection -> RIO env (Either Utf8Builder (ID Client))
-authenticate connection = do
-  auth <- receiveMessage connection
-  case Auth.clientIdFromJWT "secret" auth of
-    Just clientId -> do
-      isPendingClient <- removePendingClient clientId
-
-      pure $
-        if isPendingClient
-          then Right clientId
-          else Left "wasnt pending client"
-    _ ->
-      pure $ Left "bad auth"
+    onDisconnect :: RIO env ()
+    onDisconnect =
+      logInfo "Goodbye connection"
 
 withClientThread :: Connection -> RIO a () -> RIO a ()
 withClientThread connection action = withRunInIO $ \runInIO ->
   WS.withPingThread connection pingInterval (pure ()) $ runInIO action
+
+authenticate ::
+  forall env.
+  HasClientAuth env =>
+  PendingConnection ->
+  ExceptT WebSocketAuthError (RIO env) (ID Client)
+authenticate =
+  verifyClientId
+    <=< liftEither
+      . first ClientAuthError
+      . retrieveClientId
+    <=< withExceptT ClientAuthError
+      . ExceptT
+      . decodeClientToken
+    <=< liftEither
+      . tokenTextFromRequest
+      . pendingRequest
+  where
+    verifyClientId :: ID Client -> ExceptT WebSocketAuthError (RIO env) (ID Client)
+    verifyClientId clientId = do
+      isValidId <- isClientCached clientId
+      if isValidId
+        then uncacheClient clientId >> pure clientId
+        else throwError $ UnknownClientId clientId
+
+tokenTextFromRequest :: RequestHead -> Either WebSocketAuthError Text
+tokenTextFromRequest RequestHead {requestPath} =
+  case HTTP.decodePath requestPath of
+    (_, [("token", Just token)]) ->
+      first RequestTokenDecodeError $ decodeUtf8' token
+    _ ->
+      Left RequestMissingToken
 
 pingInterval :: Int
 pingInterval = 30
@@ -65,8 +101,9 @@ sendMessage connection = liftIO . WS.sendTextData connection
 receiveMessage :: Connection -> RIO a Text
 receiveMessage = liftIO . WS.receiveData
 
-closeConnection :: Connection -> Text -> RIO a ()
-closeConnection connection = liftIO . WS.sendClose connection
+rejectRequest :: PendingConnection -> ByteString -> RIO a ()
+rejectRequest pendingConnection =
+  liftIO . WS.rejectRequest pendingConnection
 
 acceptRequest :: PendingConnection -> RIO a Connection
 acceptRequest = liftIO . WS.acceptRequest
