@@ -21,6 +21,7 @@ dependencies:
 - mtl
 - rio >= 0.1.12.0
 - time
+- unliftio
 - wai
 - wai-cors
 - wai-websockets

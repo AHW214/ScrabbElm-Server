@@ -7,11 +7,10 @@ module Scrabble.Authentication.Client
     Encoded,
     HasClientAuth (..),
     Secret,
-    cacheClientWithTimeout,
+    cacheClient,
     clientTokenToLazyByteString,
     createCache,
     decodeClientToken,
-    isClientCached,
     retrieveClientId,
     uncacheClient,
   )
@@ -20,11 +19,13 @@ where
 import Data.Aeson (toJSON)
 import qualified Data.Aeson as JSON
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
-import RIO
+import RIO hiding (timeout)
 import qualified RIO.ByteString.Lazy as BL
 import RIO.Time
 import Scrabble.Authentication.Cache (Cache)
 import qualified Scrabble.Authentication.Cache as Cache
+import Scrabble.Authentication.Timeout (Timeout)
+import qualified Scrabble.Authentication.Timeout as Timeout
 import Scrabble.Authentication.Token (Decoded, Encoded, Secret, Token)
 import qualified Scrabble.Authentication.Token as Token
 import Scrabble.Client (Client, ID)
@@ -39,7 +40,8 @@ data ClientToken a where
   Decoded :: Token Decoded -> ClientToken Decoded
   Encoded :: Token Encoded -> ClientToken Encoded
 
-data ClientCache = ClientCache (Cache Int (ID Client))
+data ClientCache
+  = ClientCache (Cache Int (ID Client) (Timeout ()))
 
 class HasClientAuth env where
   clientAuthL :: Lens' env ClientAuth
@@ -55,40 +57,46 @@ instance Display ClientAuthError where
     ClientIdMissing ->
       "Client did not specify an ID"
 
-cacheClientWithTimeout ::
-  ( MonadIO m,
-    MonadUnliftIO m,
+cacheClient ::
+  ( MonadUnliftIO m,
     MonadReader env m,
     HasClientAuth env
   ) =>
-  m (ClientToken Encoded, Async ())
-cacheClientWithTimeout = do
+  m (ClientToken Encoded)
+cacheClient = do
   ClientAuth
     { authClientCache = ClientCache cache,
       authExpireMilliseconds = millis
     } <-
     view clientAuthL
 
-  clientId <- atomically $ Cache.add cache
-  clientToken <- createClientToken clientId
+  clientId <- Cache.insertWith cache $ \cid ->
+    Timeout.create
+      (fromInteger $ 1000 * millis)
+      (void $ atomically $ Cache.remove cid cache)
 
-  thread <- async $ do
-    threadDelay $ fromInteger $ 1000 * millis
-    atomically $ Cache.remove clientId cache
+  createClientToken clientId
 
-  pure (clientToken, thread)
-
-isClientCached :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m Bool
-isClientCached clientId =
-  withClientCache $
-    atomically . Cache.has clientId
-
-uncacheClient :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m ()
+uncacheClient ::
+  ( MonadIO m,
+    MonadReader env m,
+    HasClientAuth env
+  ) =>
+  ID Client ->
+  m Bool
 uncacheClient clientId =
-  withClientCache $
-    atomically . Cache.remove clientId
+  withClientCache $ \cache ->
+    (atomically $ Cache.remove clientId cache) >>= \case
+      Just timeout -> do
+        Timeout.cancel timeout
+        pure True
+      Nothing ->
+        pure False
 
-withClientCache :: (MonadIO m, MonadReader env m, HasClientAuth env) => (Cache Int (ID Client) -> m a) -> m a
+withClientCache ::
+  (MonadIO m, MonadReader env m, HasClientAuth env) =>
+  (Cache Int (ID Client) (Timeout ()) -> m a) ->
+  m a
 withClientCache operation = do
   ClientAuth {authClientCache = ClientCache cache} <- view clientAuthL
   operation cache

@@ -79,9 +79,9 @@ authenticate =
   where
     verifyClientId :: ID Client -> ExceptT WebSocketAuthError (RIO env) (ID Client)
     verifyClientId clientId = do
-      isValidId <- isClientCached clientId
+      isValidId <- uncacheClient clientId
       if isValidId
-        then uncacheClient clientId >> pure clientId
+        then pure clientId
         else throwError $ UnknownClientId clientId
 
 tokenTextFromRequest :: RequestHead -> Either WebSocketAuthError Text
