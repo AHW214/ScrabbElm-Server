@@ -5,7 +5,13 @@ where
 
 import Control.Monad.Except
 import qualified Network.HTTP.Types as HTTP
-import Network.WebSockets (Connection, PendingConnection, RequestHead (..), pendingRequest)
+import Network.WebSockets
+  ( Connection,
+    ConnectionException,
+    PendingConnection,
+    RequestHead (..),
+    pendingRequest,
+  )
 import qualified Network.WebSockets as WS
 import RIO
 import Scrabble.Authentication.Client
@@ -37,20 +43,24 @@ app pendingConnection = do
     Right clientId -> do
       connection <- acceptRequest pendingConnection
       logInfo $ "Connection accepted as " <> display clientId <> "!"
-      serveClient connection
+      serveClient clientId connection
     Left err -> do
       logWarn $ "Connection failed to authenticate: " <> display err
       rejectRequest pendingConnection $ encodeUtf8 $ textDisplay err
 
-serveClient :: forall env. HasLogFunc env => Connection -> RIO env ()
-serveClient connection =
+serveClient :: forall env. HasLogFunc env => ID Client -> Connection -> RIO env ()
+serveClient clientId connection =
   withClientThread connection $ onMessage `finally` onDisconnect
   where
     onMessage :: RIO env ()
-    onMessage = forever $ do
-      msg <- receiveMessage connection
-      logInfo $ "Connection said '" <> display msg <> "'"
-      sendMessage connection $ "You said: " <> msg
+    onMessage =
+      try (receiveMessage connection) >>= \case
+        Right msg -> do
+          logInfo $ display clientId <> " said '" <> display msg <> "'"
+          sendMessage connection $ "You said: " <> msg
+          onMessage
+        Left (excp :: ConnectionException) ->
+          logInfo $ display clientId <> " disconnected: " <> displayShow excp
 
     onDisconnect :: RIO env ()
     onDisconnect =
