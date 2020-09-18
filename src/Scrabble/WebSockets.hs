@@ -18,22 +18,38 @@ import Scrabble.Authentication.Client
 import Scrabble.Client (Client)
 import Scrabble.Common (ID)
 
+type WebSocketAuth env a b =
+  a -> ExceptT WebSocketAuthError (RIO env) b
+
 data WebSocketAuthError
-  = ClientAuthError ClientAuthError
-  | RequestMissingToken
-  | RequestTokenDecodeError UnicodeException
-  | UnknownClientId (ID Client)
+  = InvalidRequest RequestError
+  | InvalidToken ClientTokenError
+  | UnknownClient (ID Client)
 
 instance Display WebSocketAuthError where
   display = \case
-    ClientAuthError err ->
-      "Client authentication error: " <> display err
+    InvalidRequest err ->
+      "WebSocket request error: "
+        <> display err
+    InvalidToken err ->
+      "Client token error: "
+        <> display err
+    UnknownClient clientId ->
+      "Unknown client ID '"
+        <> display clientId
+        <> "' (probably timed out)"
+
+data RequestError
+  = RequestMissingToken
+  | RequestTokenBadUnicode UnicodeException
+
+instance Display RequestError where
+  display = \case
     RequestMissingToken ->
-      "Token missing from websocket request"
-    RequestTokenDecodeError err ->
-      "Error decoding request token: " <> displayShow err
-    UnknownClientId clientId ->
-      "Unknown client ID '" <> display clientId <> "' (probably timed out)"
+      "No token specified"
+    RequestTokenBadUnicode excp ->
+      "Could not read token text: "
+        <> displayShow excp
 
 app :: (HasClientAuth env, HasLogFunc env) => PendingConnection -> RIO env ()
 app pendingConnection = do
@@ -73,32 +89,44 @@ withClientThread connection action = withRunInIO $ \runInIO ->
 authenticate ::
   forall env.
   HasClientAuth env =>
-  PendingConnection ->
-  ExceptT WebSocketAuthError (RIO env) (ID Client)
+  WebSocketAuth env PendingConnection (ID Client)
 authenticate =
-  verifyClientId
-    <=< liftEither
-      . first ClientAuthError
-      . retrieveClientId
-    <=< withExceptT ClientAuthError
-      . ExceptT
-      . decodeClientToken
-    <=< liftEither
-      . tokenTextFromRequest
-      . pendingRequest
+  verifyId
+    <=< retrieveId
+    <=< decodeToken
+    <=< readToken
   where
-    verifyClientId :: ID Client -> ExceptT WebSocketAuthError (RIO env) (ID Client)
-    verifyClientId clientId = do
+    verifyId :: WebSocketAuth env (ID Client) (ID Client)
+    verifyId clientId = do
       isValidId <- uncacheClient clientId
       if isValidId
         then pure clientId
-        else throwError $ UnknownClientId clientId
+        else throwError $ UnknownClient clientId
 
-tokenTextFromRequest :: RequestHead -> Either WebSocketAuthError Text
+    retrieveId :: WebSocketAuth env (ClientToken Decoded) (ID Client)
+    retrieveId =
+      withExceptT InvalidToken
+        . liftEither
+        . retrieveClientId
+
+    decodeToken :: WebSocketAuth env Text (ClientToken Decoded)
+    decodeToken =
+      withExceptT InvalidToken
+        . ExceptT
+        . decodeClientToken
+
+    readToken :: WebSocketAuth env PendingConnection Text
+    readToken =
+      withExceptT InvalidRequest
+        . liftEither
+        . tokenTextFromRequest
+        . pendingRequest
+
+tokenTextFromRequest :: RequestHead -> Either RequestError Text
 tokenTextFromRequest RequestHead {requestPath} =
   case HTTP.decodePath requestPath of
     (_, [("token", Just token)]) ->
-      first RequestTokenDecodeError $ decodeUtf8' token
+      first RequestTokenBadUnicode $ decodeUtf8' token
     _ ->
       Left RequestMissingToken
 

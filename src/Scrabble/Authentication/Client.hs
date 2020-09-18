@@ -1,8 +1,8 @@
 module Scrabble.Authentication.Client
   ( ClientAuth (..),
-    ClientAuthError,
     ClientCache,
     ClientToken,
+    ClientTokenError,
     Decoded,
     Encoded,
     HasClientAuth (..),
@@ -46,14 +46,14 @@ data ClientCache
 class HasClientAuth env where
   clientAuthL :: Lens' env ClientAuth
 
-data ClientAuthError
-  = MalformedToken
+data ClientTokenError
+  = ClientTokenMalformed
   | ClientIdMissing
 
-instance Display ClientAuthError where
+instance Display ClientTokenError where
   display = \case
-    MalformedToken ->
-      "Token text was malformed"
+    ClientTokenMalformed ->
+      "Client token text was malformed"
     ClientIdMissing ->
       "Client did not specify an ID"
 
@@ -105,7 +105,7 @@ createCache :: STM (ClientCache)
 createCache =
   ClientCache <$> Cache.create 0 (\count -> (fromString $ show count, count + 1))
 
-retrieveClientId :: ClientToken Decoded -> Either ClientAuthError (ID Client)
+retrieveClientId :: ClientToken Decoded -> Either ClientTokenError (ID Client)
 retrieveClientId (Decoded token) =
   case Token.retrieveClaim "cid" token of
     Just clientId ->
@@ -117,16 +117,28 @@ clientTokenToLazyByteString :: ClientToken Encoded -> BL.ByteString
 clientTokenToLazyByteString (Encoded token) =
   Token.toLazyByteString token
 
-decodeClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => Text -> m (Either ClientAuthError (ClientToken Decoded))
+decodeClientToken ::
+  ( MonadIO m,
+    MonadReader env m,
+    HasClientAuth env
+  ) =>
+  Text ->
+  m (Either ClientTokenError (ClientToken Decoded))
 decodeClientToken tokenText = do
   ClientAuth {authTokenSecret = secret} <- view clientAuthL
   pure $ case Token.decodeFromText secret tokenText of
     Just token ->
       Right $ Decoded token
     Nothing ->
-      Left MalformedToken
+      Left ClientTokenMalformed
 
-createClientToken :: (MonadIO m, MonadReader env m, HasClientAuth env) => ID Client -> m (ClientToken Encoded)
+createClientToken ::
+  ( MonadIO m,
+    MonadReader env m,
+    HasClientAuth env
+  ) =>
+  ID Client ->
+  m (ClientToken Encoded)
 createClientToken clientId = do
   ClientAuth
     { authExpireMilliseconds = millis,
