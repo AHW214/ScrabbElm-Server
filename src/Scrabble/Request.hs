@@ -1,34 +1,47 @@
+-- | Application for HTTP requests.
 module Scrabble.Request
   ( app,
   )
 where
 
-import Network.HTTP.Types (Status, status200, status501)
-import Network.HTTP.Types.Header (ResponseHeaders, hCacheControl, hContentType)
-import Network.Wai (Application, requestMethod, responseLBS)
+import Network.HTTP.Types
+import Network.Wai
 import RIO
-import qualified RIO.ByteString.Lazy as BL
+import Scrabble.Authentication.Client
 
-app :: Application
-app request respond =
-  let (status, headers, body) =
-        case requestMethod request of
-          "GET" -> get
-          _ -> unsupported
-   in respond $ responseLBS status headers body
-  where
-    get :: (Status, ResponseHeaders, BL.ByteString)
-    get =
-      ( status200,
-        [ (hContentType, "text/plain; charset=utf-8"),
-          (hCacheControl, "no-cache")
-        ],
-        "meme"
-      )
+-- | The application for handling HTTP requests.
+-- Clients that perform a GET request for authentication will
+-- receive a JWT. All other requests are unsupported.
+app ::
+  ( HasClientAuth env,
+    HasLogFunc env
+  ) =>
+  -- | An HTTP request.
+  Request ->
+  -- | A function for issuing a response.
+  (Response -> IO ResponseReceived) ->
+  -- | The application.
+  RIO env ResponseReceived
+app request respond = do
+  (status, headers, body) <-
+    case (requestMethod request, pathInfo request) of
+      ("GET", ["auth"]) -> do
+        logInfo "Client requested authentication!"
 
-    unsupported :: (Status, ResponseHeaders, BL.ByteString)
-    unsupported =
-      ( status501,
-        [(hContentType, "text/plain")],
-        "Operation unsupported."
-      )
+        token <- cacheClient
+
+        pure
+          ( status200,
+            [ (hContentType, "text/plain; charset=utf-8"),
+              (hCacheControl, "no-cache")
+            ],
+            clientTokenToLazyByteString token
+          )
+      _ ->
+        pure
+          ( status501,
+            [(hContentType, "text/plain")],
+            "Operation unsupported."
+          )
+
+  liftIO $ respond $ responseLBS status headers body

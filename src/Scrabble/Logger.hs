@@ -14,17 +14,25 @@ import System.Console.ANSI
 
 -- | Options for initializing the logger interface.
 data LoggerOptions = LoggerOptions
-  { loggerHandle :: !Handle,
+  { -- | The handle of the stream or file that will receive log messages.
+    loggerHandle :: !Handle,
+    -- | The minimum level at which logs will be made.
     loggerMinLevel :: !LogLevel,
+    -- | The number of messages the logger-thread queue can
+    -- hold before blocking writes.
     loggerQueueCapacity :: !Natural,
+    -- | Option for coloring logs.
     loggerUseColor :: !ColorOption
   }
 
 -- | Options for coloring logs.
 data ColorOption
-  = AlwaysColor
-  | NeverColor
-  | AutoColor
+  = -- | Always color logs.
+    AlwaysColor
+  | -- | Never color logs.
+    NeverColor
+  | -- | Atomically color logs (i.e. if the program is run from a terminal).
+    AutoColor
 
 -- | Queue for sending messages to the logger thread.
 type LoggerQueue = TBQueue Builder
@@ -84,7 +92,15 @@ concurrentLogFunc loggerQueue loggerOptions = do
         <=< formatMessage ansi level
 
 -- | Format a log message with a timestamp and log level.
-formatMessage :: ([SGR] -> Utf8Builder) -> LogLevel -> Utf8Builder -> IO Utf8Builder
+formatMessage ::
+  -- | A function to encode ansi formatting.
+  ([SGR] -> Utf8Builder) ->
+  -- | The level of the log message.
+  LogLevel ->
+  -- | The raw log message.
+  Utf8Builder ->
+  -- | The formatted log message.
+  IO Utf8Builder
 formatMessage ansi logLevel message = do
   let (levelName, levelColor) =
         logLevelNameAndColor logLevel

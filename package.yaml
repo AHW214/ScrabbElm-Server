@@ -12,11 +12,16 @@ extra-source-files:
 description: Please see the README on GitHub at <https://github.com/AHW214/ScrabbElm-Server#readme>
 
 dependencies:
+- aeson
 - ansi-terminal
 - base >= 4.11 && < 10
 - bytestring
 - http-types
+- jwt
+- mtl
 - rio >= 0.1.12.0
+- time
+- unliftio
 - wai
 - wai-cors
 - wai-websockets
