@@ -16,6 +16,8 @@ dependencies:
 - ansi-terminal
 - base >= 4.11 && < 10
 - bytestring
+- dotenv # move to executable deps?
+- envy
 - http-types
 - jwt
 - mtl
