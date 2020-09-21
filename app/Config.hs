@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Config
-  ( load,
+  ( loadConfig,
   )
 where
 
@@ -14,10 +14,10 @@ import System.Envy
 data Config = Config
   { configAuthExpireMilliseconds :: !Integer,
     configAuthTokenSecret :: !Text,
-    configLogLevel :: !Text,
-    configPort :: !Int
+    configMinLogLevel :: !Text,
+    configServerPort :: !Int
   }
-  deriving (Generic)
+  deriving (Show, Generic)
 
 instance FromEnv Config where
   fromEnv =
@@ -28,7 +28,7 @@ instance FromEnv Config where
 
 data ConfigError
   = ConfigCannotDecode Text
-  | ConfigCannotParse SomeException
+  | ConfigCannotParse SomeException -- TODO: refine exception types
   | ConfigCannotSet Text
 
 instance Display ConfigError where
@@ -43,12 +43,12 @@ instance Display ConfigError where
       "Cannot set loaded env vars: "
         <> display reason
 
-load ::
+loadConfig ::
   forall m.
   MonadUnliftIO m =>
   FilePath ->
   ExceptT ConfigError m Config
-load =
+loadConfig =
   const decodeConfig
     <=< setEnvVars
     <=< parseEnvFile

@@ -5,8 +5,11 @@ module Main
 where
 
 import CLI (Options (..), readOptions)
+import Config (loadConfig)
+import Control.Monad.Except (runExceptT) -- TODO: Integrate into loadConfig ?
 import RIO
 import RIO.Process (mkDefaultProcessContext)
+import qualified RIO.Text as Text
 import Scrabble.App
 import Scrabble.Authentication.Client (ClientAuth (..))
 import qualified Scrabble.Authentication.Client as Auth
@@ -43,6 +46,14 @@ main = do
   clientCache <- atomically $ Auth.createCache
   (logFunc, _) <- runLoggerThread loggerOptions
   processContext <- mkDefaultProcessContext
+
+  runExceptT (loadConfig ".env") >>= \case
+    Left err ->
+      traceIO $ textDisplay err
+    Right config ->
+      traceIO $ Text.pack $ show config
+
+  exitSuccess
 
   let app =
         App
