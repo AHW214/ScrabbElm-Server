@@ -31,8 +31,7 @@ ScrabbElm-Server.cabal
 hie.yaml
 
 ### Config ###
-scrabble.yaml
-scrabble.yml
+.env*
 
 ### Utils ###
 build-and-send.sh
