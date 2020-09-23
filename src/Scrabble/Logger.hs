@@ -2,6 +2,7 @@
 module Scrabble.Logger
   ( ColorOption (..),
     LoggerOptions (..),
+    defaultLogLevel,
     logLevelNameAndColor,
     runLoggerThread,
   )
@@ -144,3 +145,6 @@ logLevelNameAndColor = \case
   LevelWarn -> ("WARN", Yellow)
   LevelError -> ("ERROR", Red)
   LevelOther level -> (display level, Magenta)
+
+defaultLogLevel :: LogLevel
+defaultLogLevel = LevelInfo

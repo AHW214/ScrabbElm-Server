@@ -1,9 +1,11 @@
 -- | Common types and functions. TODO: Convert this to a prelude type module?
 module Scrabble.Common
   ( ID (..),
+    Try (..),
     maybeFromJSON,
     modifyTMVar',
     stateTMVar,
+    tries,
     withTMVar',
   )
 where
@@ -11,6 +13,9 @@ where
 import Data.Aeson (FromJSON, Result (..), ToJSON, fromJSON)
 import qualified Data.Aeson as JSON
 import RIO
+
+data Try e where
+  Try :: Exception e' => (e' -> e) -> Try e
 
 -- | A text identifier for some entity.
 newtype ID a = ID Text
@@ -49,3 +54,8 @@ maybeFromJSON value =
       Just x
     _ ->
       Nothing
+
+tries :: MonadUnliftIO m => m a -> [Try e] -> m (Either e a)
+tries action =
+  catches (Right <$> action)
+    . fmap (\(Try t) -> Handler (pure . Left . t))
