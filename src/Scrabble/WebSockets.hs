@@ -56,9 +56,9 @@ instance Display RequestError where
   display = \case
     RequestMissingToken ->
       "No token specified"
-    RequestTokenBadUnicode excp ->
+    RequestTokenBadUnicode ex ->
       "Could not read token text: "
-        <> displayShow excp
+        <> displayShow ex
 
 -- | The WebSocket application.
 app :: (HasClientAuth env, HasLogFunc env) => PendingConnection -> RIO env ()
@@ -87,8 +87,8 @@ serveClient clientId connection =
           logInfo $ display clientId <> " said '" <> display msg <> "'"
           sendMessage connection $ "You said: " <> msg
           onMessage
-        Left (excp :: ConnectionException) ->
-          logInfo $ display clientId <> " disconnected: " <> displayShow excp
+        Left (ex :: ConnectionException) ->
+          logInfo $ display clientId <> " disconnected: " <> displayShow ex
 
     -- Handle disconnection.
     onDisconnect :: RIO env ()

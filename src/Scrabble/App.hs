@@ -5,7 +5,6 @@ module Scrabble.App
 where
 
 import RIO
-import RIO.Process (HasProcessContext (..), ProcessContext)
 import Scrabble.Authentication.Client
 
 -- | The application environment.
@@ -13,9 +12,7 @@ data App = App
   { -- | The environment for authenticating new clients.
     appClientAuth :: ClientAuth,
     -- | A function for logging diagnostic information.
-    appLogFunc :: !LogFunc,
-    -- | The environment for reading process information [TODO: not needed?].
-    appProcessContext :: !ProcessContext
+    appLogFunc :: !LogFunc
   }
 
 instance HasClientAuth App where
@@ -23,6 +20,3 @@ instance HasClientAuth App where
 
 instance HasLogFunc App where
   logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
-
-instance HasProcessContext App where
-  processContextL = lens appProcessContext (\x y -> x {appProcessContext = y})

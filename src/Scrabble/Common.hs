@@ -5,6 +5,7 @@ module Scrabble.Common
     maybeFromJSON,
     modifyTMVar',
     stateTMVar,
+    stringDisplay,
     tries,
     withTMVar',
   )
@@ -13,6 +14,7 @@ where
 import Data.Aeson (FromJSON, Result (..), ToJSON, fromJSON)
 import qualified Data.Aeson as JSON
 import RIO
+import qualified RIO.Text as Text
 
 data Try e where
   Try :: Exception e' => (e' -> e) -> Try e
@@ -59,3 +61,6 @@ tries :: MonadUnliftIO m => m a -> [Try e] -> m (Either e a)
 tries action =
   catches (Right <$> action)
     . fmap (\(Try t) -> Handler (pure . Left . t))
+
+stringDisplay :: Display a => a -> String
+stringDisplay = Text.unpack . textDisplay

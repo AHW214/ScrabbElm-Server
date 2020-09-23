@@ -13,12 +13,14 @@ where
 
 import Data.Aeson (FromJSON)
 import qualified Data.Aeson as JSON
+import qualified Data.ByteString.Char8 as C8
 import RIO hiding (exp)
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
 import qualified RIO.Text as Text
 import RIO.Time
 import Scrabble.Common
+import System.Envy (Var (..))
 import Web.JWT
 
 -- | A JSON Web Token.
@@ -37,12 +39,32 @@ data Encoded
 -- | An HMAC secret key for signing tokens.
 newtype Secret = Secret Signer
 
+instance Var Secret where
+  toVar (Secret signer) =
+    case signer of
+      HMACSecret byteString ->
+        C8.unpack byteString
+      RSAPrivateKey privateKey ->
+        show privateKey
+
+  fromVar =
+    createFixedSizeSecret . Text.pack
+
 instance IsString Secret where
   fromString = createSecret . fromString
 
--- | Create an HMAC secret from text. TODO: require 256 bit secrets?
+createFixedSizeSecret :: Text -> Maybe Secret
+createFixedSizeSecret text =
+  if Text.length text == secretSizeBytes
+    then Just $ createSecret text
+    else Nothing
+
+-- | Create an HMAC secret from text.
 createSecret :: Text -> Secret
 createSecret = Secret . hmacSecret
+
+secretSizeBytes :: Int
+secretSizeBytes = 32
 
 -- | Retrieve an unregistered claim from a decoded token.
 retrieveClaim ::

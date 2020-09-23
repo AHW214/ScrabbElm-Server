@@ -5,11 +5,9 @@ module Main
 where
 
 import CLI (Options (..), readOptions)
-import Config (loadConfig)
+import Config (Config (..), readConfig)
 import Control.Monad.Except (runExceptT) -- TODO: Integrate into loadConfig ?
 import RIO
-import RIO.Process (mkDefaultProcessContext)
-import qualified RIO.Text as Text
 import Scrabble.App
 import Scrabble.Authentication.Client (ClientAuth (..))
 import qualified Scrabble.Authentication.Client as Auth
@@ -21,6 +19,7 @@ main :: IO ()
 main = do
   ( Options
       { optionsColor,
+        optionsConfigFile,
         optionsPort,
         optionsQuiet,
         optionsVerbose,
@@ -30,40 +29,53 @@ main = do
     ) <-
     readOptions
 
-  let logLevel
-        | optionsQuiet = LevelError
-        | optionsVerbose = LevelDebug
-        | otherwise = optionsVerbosity
+  runExceptT (readConfig optionsConfigFile) >>= \case
+    Left err -> do
+      hPutBuilder stderr $ getUtf8Builder $ display err -- TODO
+      exitFailure
+    Right config -> do
+      let Config
+            { configAuthExpireMilliseconds,
+              configAuthTokenSecret,
+              configMinLogLevel,
+              configServerPort
+            } = config
 
-      loggerOptions =
-        LoggerOptions
-          { loggerHandle = stdout,
-            loggerMinLevel = logLevel,
-            loggerQueueCapacity = 256,
-            loggerUseColor = optionsColor
-          }
+      case configAuthTokenSecret of
+        Nothing -> do
+          hPutBuilder stderr $ getUtf8Builder "no auth secret specified"
+          exitFailure
+        Just authTokenSecret -> do
+          let serverPort =
+                optionsPort `orDefault` configServerPort
 
-  clientCache <- atomically $ Auth.createCache
-  (logFunc, _) <- runLoggerThread loggerOptions
-  processContext <- mkDefaultProcessContext
+              logLevel
+                | optionsQuiet = LevelError
+                | optionsVerbose = LevelDebug
+                | otherwise = optionsVerbosity `orDefault` configMinLogLevel
 
-  runExceptT (loadConfig ".env") >>= \case
-    Left err ->
-      traceIO $ textDisplay err
-    Right config ->
-      traceIO $ Text.pack $ show config
+              loggerOptions =
+                LoggerOptions
+                  { loggerHandle = stdout,
+                    loggerMinLevel = logLevel,
+                    loggerQueueCapacity = 256,
+                    loggerUseColor = optionsColor
+                  }
 
-  exitSuccess
+          clientCache <- atomically $ Auth.createCache
+          (logFunc, _) <- runLoggerThread loggerOptions
 
-  let app =
-        App
-          { appClientAuth =
-              ClientAuth
-                { authClientCache = clientCache,
-                  authExpireMilliseconds = 5000,
-                  authTokenSecret = "secret"
-                },
-            appLogFunc = logFunc,
-            appProcessContext = processContext
-          }
-   in runRIO app $ run optionsPort
+          let app =
+                App
+                  { appClientAuth =
+                      ClientAuth
+                        { authClientCache = clientCache,
+                          authExpireMilliseconds = configAuthExpireMilliseconds,
+                          authTokenSecret
+                        },
+                    appLogFunc = logFunc
+                  }
+           in runRIO app $ run serverPort
+
+orDefault :: Maybe a -> a -> a
+orDefault = flip fromMaybe

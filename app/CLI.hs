@@ -7,20 +7,22 @@ module CLI
   )
 where
 
+import Config (Config (..), defaultConfig)
 import Options.Applicative.Simple
 import qualified Paths_scrabbelm_server
 import RIO
 import qualified RIO.List as List
-import qualified RIO.Text as Text
-import Scrabble.Logger (ColorOption (..), logLevelNameAndColor)
+import Scrabble.Common
+import Scrabble.Logger (ColorOption (..), logLevelFromString)
 
 -- | Command-line options.
 data Options = Options
   { optionsColor :: !ColorOption,
-    optionsPort :: !Int,
+    optionsConfigFile :: !(Maybe FilePath),
+    optionsPort :: !(Maybe Int),
     optionsQuiet :: !Bool,
     optionsVerbose :: !Bool,
-    optionsVerbosity :: !LogLevel
+    optionsVerbosity :: !(Maybe LogLevel)
   }
 
 -- | Read options from the command-line.
@@ -42,9 +44,8 @@ parseOptions =
       ( long "color"
           <> short 'c'
           <> help
-            ( "Whether to color log messages "
+            ( "Whether to color log messages"
                 <> renderChoices
-                  renderColorOption
                   [ AlwaysColor,
                     NeverColor,
                     AutoColor
@@ -54,20 +55,31 @@ parseOptions =
           <> value AutoColor
           <> metavar "STR"
       )
-    <*> option
-      auto
-      ( long "port"
-          <> short 'p'
-          <> help "Port on which to listen for websocket connections"
-          <> showDefault
-          <> value 3000
-          <> metavar "INT"
+    <*> optional
+      ( strOption
+          ( long "config"
+              <> help "Config file for specifying environment variables"
+              <> metavar "STR"
+          )
+      )
+    <*> optional
+      ( option
+          auto
+          ( long "port"
+              <> short 'p'
+              <> help
+                ( "Port on which to listen for websocket connections"
+                    <> renderDefault
+                      (configServerPort defaultConfig)
+                )
+              <> metavar "INT"
+          )
       )
     <*> switch
       ( long "quiet"
           <> short 'q'
           <> help
-            ( "Only show critical errors "
+            ( "Only show critical errors"
                 <> exampleVerbosity
                   LevelError
             )
@@ -76,27 +88,28 @@ parseOptions =
       ( long "verbose"
           <> short 'v'
           <> help
-            ( "Show debug-level information "
+            ( "Show debug-level information"
                 <> exampleVerbosity
                   LevelDebug
             )
       )
-    <*> option
-      parseLogLevel
-      ( long "verbosity"
-          <> help
-            ( "Minimum level at which logs will be shown "
-                <> renderChoices
-                  renderLogLevel
-                  [ LevelDebug,
-                    LevelInfo,
-                    LevelWarn,
-                    LevelError
-                  ]
-            )
-          <> showDefaultWith renderLogLevel
-          <> value LevelInfo
-          <> metavar "STR"
+    <*> optional
+      ( option
+          parseLogLevel
+          ( long "verbosity"
+              <> help
+                ( "Minimum level at which logs will be shown"
+                    <> renderChoices
+                      [ LevelDebug,
+                        LevelInfo,
+                        LevelWarn,
+                        LevelError
+                      ]
+                    <> renderDefault
+                      (configMinLogLevel defaultConfig)
+                )
+              <> metavar "STR"
+          )
       )
 
 -- | Render a color option as a string.
@@ -124,32 +137,22 @@ parseColorOption = eitherReader $ \case
 -- | Render an example verbosity option with the given log level.
 exampleVerbosity :: LogLevel -> String
 exampleVerbosity logLevel =
-  "(--verbosity " <> renderLogLevel logLevel <> ")"
-
--- | Render a log level as a string.
-renderLogLevel :: LogLevel -> String
-renderLogLevel =
-  Text.unpack
-    . Text.toLower
-    . textDisplay
-    . fst
-    . logLevelNameAndColor
+  " (--verbosity " <> stringDisplay logLevel <> ")"
 
 -- | Parse a log level from a string.
 parseLogLevel :: ReadM LogLevel
-parseLogLevel = eitherReader $ \case
-  "debug" ->
-    Right LevelDebug
-  "info" ->
-    Right LevelInfo
-  "warn" ->
-    Right LevelWarn
-  "error" ->
-    Right LevelError
-  level ->
-    Left $ "Unknown log level: '" <> level <> "'"
+parseLogLevel = eitherReader $ \levelName ->
+  case logLevelFromString levelName of
+    Just logLevel ->
+      Right logLevel
+    Nothing ->
+      Left $ "Unknown log level: '" <> levelName <> "'"
 
 -- | Render a list of choices for the input to an option.
-renderChoices :: (a -> String) -> [a] -> String
-renderChoices render choices =
-  "(choices: " <> List.intercalate ", " (render <$> choices) <> ")"
+renderChoices :: Display a => [a] -> String
+renderChoices choices =
+  " (choices: " <> List.intercalate ", " (stringDisplay <$> choices) <> ")"
+
+renderDefault :: Display a => a -> String
+renderDefault defValue =
+  " (default: " <> stringDisplay defValue <> ")"

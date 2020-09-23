@@ -2,8 +2,7 @@
 module Scrabble.Logger
   ( ColorOption (..),
     LoggerOptions (..),
-    defaultLogLevel,
-    logLevelNameAndColor,
+    logLevelFromString,
     runLoggerThread,
   )
 where
@@ -11,7 +10,9 @@ where
 import Data.ByteString.Builder.Extra (flush)
 import RIO
 import RIO.Time
+import Scrabble.Common
 import System.Console.ANSI
+import System.Envy (Var (..))
 
 -- | Options for initializing the logger interface.
 data LoggerOptions = LoggerOptions
@@ -35,8 +36,34 @@ data ColorOption
   | -- | Atomically color logs (i.e. if the program is run from a terminal).
     AutoColor
 
+instance Display ColorOption where
+  display = \case
+    AlwaysColor ->
+      "always"
+    NeverColor ->
+      "never"
+    AutoColor ->
+      "auto"
+
 -- | Queue for sending messages to the logger thread.
 type LoggerQueue = TBQueue Builder
+
+-- TO-FIX: Orphan instance
+instance Var LogLevel where
+  toVar =
+    stringDisplay
+
+  fromVar =
+    logLevelFromString
+
+-- TO-FIX: Orphan instance
+instance Display LogLevel where
+  display = \case
+    LevelDebug -> "debug"
+    LevelInfo -> "info"
+    LevelWarn -> "warn"
+    LevelError -> "error"
+    LevelOther level -> display level
 
 -- | Start the logger thread and return a custom
 -- logging function for sending it messages.
@@ -146,5 +173,15 @@ logLevelNameAndColor = \case
   LevelError -> ("ERROR", Red)
   LevelOther level -> (display level, Magenta)
 
-defaultLogLevel :: LogLevel
-defaultLogLevel = LevelInfo
+logLevelFromString :: String -> Maybe LogLevel
+logLevelFromString = \case
+  "debug" ->
+    Just LevelDebug
+  "info" ->
+    Just LevelInfo
+  "warn" ->
+    Just LevelWarn
+  "error" ->
+    Just LevelError
+  _ ->
+    Nothing

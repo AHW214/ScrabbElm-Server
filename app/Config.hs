@@ -1,25 +1,31 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Config
-  ( loadConfig,
+  ( Config (..),
+    defaultConfig,
+    readConfig,
   )
 where
 
 import qualified Configuration.Dotenv as Env
 import Control.Monad.Except (ExceptT (..), withExceptT)
+import Control.Monad.Extra (whenJust)
 import RIO
 import qualified RIO.Text as Text
+import Scrabble.Authentication.Token (Secret)
 import Scrabble.Common
+-- TO-FIX: eh
+import Scrabble.Logger ()
 import System.Envy
 import System.IO.Error (isDoesNotExistError)
 
 data Config = Config
   { configAuthExpireMilliseconds :: !Integer,
-    configAuthTokenSecret :: !(Maybe Text),
-    configMinLogLevel :: !Text,
+    configAuthTokenSecret :: !(Maybe Secret),
+    configMinLogLevel :: !LogLevel,
     configServerPort :: !Int
   }
-  deriving (Generic, Show)
+  deriving (Generic)
 
 data ConfigError
   = ConfigCannotDecode Text
@@ -33,9 +39,9 @@ instance Display ConfigError where
     ConfigCannotDecode reason ->
       "Cannot decode env file: "
         <> display reason
-    ConfigCannotParse excp ->
+    ConfigCannotParse ex ->
       "Cannot parse env file: "
-        <> displayShow excp
+        <> displayShow ex
     ConfigCannotSet reason ->
       "Cannot set loaded env vars: "
         <> display reason
@@ -43,26 +49,32 @@ instance Display ConfigError where
       "Env file "
         <> displayShow filePath
         <> " does not exist"
-    ConfigIOException excp ->
+    ConfigIOException ex ->
       "Spooky IO exception: "
-        <> displayShow excp
+        <> displayShow ex
 
-loadConfig ::
+readConfig ::
   forall m.
   MonadUnliftIO m =>
-  FilePath ->
+  Maybe FilePath ->
   ExceptT ConfigError m Config
-loadConfig filePath =
-  const decodeConfig
-    =<< setEnvVars
-    =<< parseEnvFile
-      filePath
+readConfig mConfigFile = do
+  whenJust mConfigFile loadConfigFile
+  decodeConfig
   where
     decodeConfig :: ExceptT ConfigError m Config
     decodeConfig =
       withExceptT (ConfigCannotDecode . Text.pack) $
         ExceptT $ configFromEnv $ Just defaultConfig
 
+loadConfigFile ::
+  forall m.
+  MonadUnliftIO m =>
+  FilePath ->
+  ExceptT ConfigError m ()
+loadConfigFile =
+  setEnvVars <=< parseConfigFile
+  where
     setEnvVars :: EnvList a -> ExceptT ConfigError m ()
     setEnvVars =
       withExceptT (ConfigCannotSet . Text.pack)
@@ -70,22 +82,22 @@ loadConfig filePath =
         . liftIO
         . setEnvironment
 
-    parseEnvFile :: FilePath -> ExceptT ConfigError m (EnvList a)
-    parseEnvFile =
-      fmap pairsToEnvList
-        . ExceptT
-        . tryParse
-        . Env.parseFile
-
-    tryParse :: m a -> m (Either ConfigError a) -- TODO: clean up
-    tryParse =
-      flip
-        tries
+parseConfigFile ::
+  forall m a.
+  MonadUnliftIO m =>
+  FilePath ->
+  ExceptT ConfigError m (EnvList a)
+parseConfigFile = ExceptT . tryParse
+  where
+    tryParse :: FilePath -> m (Either ConfigError (EnvList a))
+    tryParse filePath =
+      tries
+        (pairsToEnvList <$> Env.parseFile filePath)
         [ Try
-            ( \(excp :: IOException) ->
-                if isDoesNotExistError excp
+            ( \(ex :: IOException) ->
+                if isDoesNotExistError ex
                   then ConfigDoesNotExist filePath
-                  else ConfigIOException excp
+                  else ConfigIOException ex
             ),
           Try ConfigCannotParse
         ]
@@ -109,6 +121,6 @@ defaultConfig =
   Config
     { configAuthExpireMilliseconds = 5000,
       configAuthTokenSecret = Nothing,
-      configMinLogLevel = "INFO",
+      configMinLogLevel = LevelInfo,
       configServerPort = 3000
     }

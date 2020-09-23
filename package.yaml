@@ -16,6 +16,8 @@ dependencies:
 - ansi-terminal
 - base >= 4.11 && < 10
 - bytestring
+- envy
+- extra
 - http-types
 - jwt
 - mtl
@@ -88,7 +90,6 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - dotenv
-    - envy
     - optparse-simple
     - scrabbelm-server
 
