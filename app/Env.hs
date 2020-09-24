@@ -1,16 +1,46 @@
 module Env
-  ( envOptional,
+  ( EnvError (..),
+    FromEnv (..),
+    ToEnv (..),
+    Var (..),
+    decodeEnv,
+    env,
+    envOptional,
     envOptionalWith,
     envWith,
+    loadEnvFile,
   )
 where
 
-import Configuration.Dotenv ()
+import qualified Configuration.Dotenv as Dotenv
 import Control.Monad.Except (throwError)
 import Data.Typeable (typeOf)
 import RIO
+import qualified RIO.Text as Text
+import Scrabble.Common (Try (..), tries)
 import System.Environment.Blank (getEnv)
-import System.Envy (Parser, Var (..))
+import System.Envy
+  ( EnvList,
+    EnvVar (..),
+    FromEnv (..),
+    Parser,
+    ToEnv (..),
+    Var (..),
+    env,
+  )
+import qualified System.Envy as Envy
+import System.IO.Error (isDoesNotExistError)
+
+data EnvError
+  = EnvCannotDecode Text
+  | EnvFileCannotParse SomeException
+  | EnvFileCannotSet Text
+  | EnvFileDoesNotExist Text
+  | EnvFileIOException IOException
+
+decodeEnv :: (FromEnv a, MonadIO m) => m (Either EnvError a)
+decodeEnv =
+  first (EnvCannotDecode . Text.pack) <$> liftIO Envy.decodeEnv
 
 -- | Reference: https://github.com/dmjio/envy/blob/master/src/System/Envy.hs
 envOptional :: Var a => String -> Parser (Maybe a)
@@ -50,3 +80,37 @@ envWithBase varNotFound parseVar key =
           throwError err
         Right parsed ->
           pure parsed
+
+loadEnvFile ::
+  MonadUnliftIO m =>
+  FilePath ->
+  m (Either EnvError ())
+loadEnvFile filePath =
+  parseEnvFile filePath >>= \case
+    Left err ->
+      pure $ Left err
+    Right vars ->
+      liftIO $
+        fmap (first (EnvFileCannotSet . Text.pack)) $
+          Envy.setEnvironment vars
+
+parseEnvFile ::
+  forall m a.
+  MonadUnliftIO m =>
+  FilePath ->
+  m (Either EnvError (EnvList a))
+parseEnvFile filePath =
+  tries
+    (pairsToEnvList <$> Dotenv.parseFile filePath)
+    [ Try
+        ( \(ex :: IOException) ->
+            if isDoesNotExistError ex
+              then EnvFileDoesNotExist $ Text.pack filePath
+              else EnvFileIOException ex
+        ),
+      Try EnvFileCannotParse
+    ]
+  where
+    pairsToEnvList :: [(String, String)] -> EnvList a
+    pairsToEnvList =
+      Envy.makeEnv . fmap (uncurry EnvVar)
