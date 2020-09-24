@@ -13,7 +13,7 @@ import qualified Paths_scrabbelm_server
 import RIO
 import qualified RIO.List as List
 import Scrabble.Common
-import Scrabble.Logger (ColorOption (..), logLevelFromString)
+import Scrabble.Logger (ColorOption (..), logLevelFromName, logLevelToName)
 
 -- | Command-line options.
 data Options = Options
@@ -46,6 +46,7 @@ parseOptions =
           <> help
             ( "Whether to color log messages"
                 <> renderChoices
+                  renderColorOption
                   [ AlwaysColor,
                     NeverColor,
                     AutoColor
@@ -70,6 +71,7 @@ parseOptions =
               <> help
                 ( "Port on which to listen for websocket connections"
                     <> renderDefault
+                      stringDisplay
                       (configServerPort defaultConfig)
                 )
               <> metavar "INT"
@@ -100,12 +102,14 @@ parseOptions =
               <> help
                 ( "Minimum level at which logs will be shown"
                     <> renderChoices
+                      logLevelToName
                       [ LevelDebug,
                         LevelInfo,
                         LevelWarn,
                         LevelError
                       ]
                     <> renderDefault
+                      logLevelToName
                       (configMinLogLevel defaultConfig)
                 )
               <> metavar "STR"
@@ -137,22 +141,18 @@ parseColorOption = eitherReader $ \case
 -- | Render an example verbosity option with the given log level.
 exampleVerbosity :: LogLevel -> String
 exampleVerbosity logLevel =
-  " (--verbosity " <> stringDisplay logLevel <> ")"
+  " (--verbosity " <> logLevelToName logLevel <> ")"
 
 -- | Parse a log level from a string.
 parseLogLevel :: ReadM LogLevel
-parseLogLevel = eitherReader $ \levelName ->
-  case logLevelFromString levelName of
-    Just logLevel ->
-      Right logLevel
-    Nothing ->
-      Left $ "Unknown log level: '" <> levelName <> "'"
+parseLogLevel =
+  eitherReader logLevelFromName
 
 -- | Render a list of choices for the input to an option.
-renderChoices :: Display a => [a] -> String
-renderChoices choices =
-  " (choices: " <> List.intercalate ", " (stringDisplay <$> choices) <> ")"
+renderChoices :: (a -> String) -> [a] -> String
+renderChoices render choices =
+  " (choices: " <> List.intercalate ", " (render <$> choices) <> ")"
 
-renderDefault :: Display a => a -> String
-renderDefault defValue =
-  " (default: " <> stringDisplay defValue <> ")"
+renderDefault :: (a -> String) -> a -> String
+renderDefault render defValue =
+  " (default: " <> render defValue <> ")"

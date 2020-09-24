@@ -9,6 +9,7 @@ module Env
     envOptionalWith,
     envWith,
     loadEnvFile,
+    withDefault,
   )
 where
 
@@ -27,6 +28,7 @@ import System.Envy
     ToEnv (..),
     Var (..),
     env,
+    (.!=),
   )
 import qualified System.Envy as Envy
 import System.IO.Error (isDoesNotExistError)
@@ -38,9 +40,31 @@ data EnvError
   | EnvFileDoesNotExist Text
   | EnvFileIOException IOException
 
+instance Display EnvError where
+  display = \case
+    EnvCannotDecode reason ->
+      "Cannot decode env: "
+        <> display reason
+    EnvFileCannotParse ex ->
+      "Cannot parse env file: "
+        <> display ex
+    EnvFileCannotSet reason ->
+      "Cannot set vars from env file: "
+        <> display reason
+    EnvFileDoesNotExist filePath ->
+      "Env file "
+        <> display filePath
+        <> " does not exist"
+    EnvFileIOException ex ->
+      "IO exception loading env file: "
+        <> display ex
+
 decodeEnv :: (FromEnv a, MonadIO m) => m (Either EnvError a)
 decodeEnv =
   first (EnvCannotDecode . Text.pack) <$> liftIO Envy.decodeEnv
+
+withDefault :: Parser (Maybe a) -> a -> Parser a
+withDefault = (.!=)
 
 -- | Reference: https://github.com/dmjio/envy/blob/master/src/System/Envy.hs
 envOptional :: Var a => String -> Parser (Maybe a)

@@ -5,6 +5,7 @@ module Scrabble.Authentication.Token
     Token,
     Secret,
     create,
+    createFixedSizeSecret,
     decodeFromText,
     retrieveClaim,
     toLazyByteString,
@@ -13,14 +14,12 @@ where
 
 import Data.Aeson (FromJSON)
 import qualified Data.Aeson as JSON
-import qualified Data.ByteString.Char8 as C8
 import RIO hiding (exp)
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Map as Map
 import qualified RIO.Text as Text
 import RIO.Time
 import Scrabble.Common
-import System.Envy (Var (..))
 import Web.JWT
 
 -- | A JSON Web Token.
@@ -39,25 +38,20 @@ data Encoded
 -- | An HMAC secret key for signing tokens.
 newtype Secret = Secret Signer
 
-instance Var Secret where
-  toVar (Secret signer) =
-    case signer of
-      HMACSecret byteString ->
-        C8.unpack byteString
-      RSAPrivateKey privateKey ->
-        show privateKey
-
-  fromVar =
-    createFixedSizeSecret . Text.pack
-
 instance IsString Secret where
   fromString = createSecret . fromString
 
-createFixedSizeSecret :: Text -> Maybe Secret
+createFixedSizeSecret :: Text -> Either Text Secret
 createFixedSizeSecret text =
   if Text.length text == secretSizeBytes
-    then Just $ createSecret text
-    else Nothing
+    then Right $ createSecret text
+    else
+      Left $
+        "Secret must be "
+          <> textDisplay (8 * secretSizeBytes)
+          <> " bits ("
+          <> textDisplay secretSizeBytes
+          <> " bytes) long"
 
 -- | Create an HMAC secret from text.
 createSecret :: Text -> Secret

@@ -2,17 +2,17 @@
 module Scrabble.Logger
   ( ColorOption (..),
     LoggerOptions (..),
-    logLevelFromString,
+    logLevelFromName,
+    logLevelToName,
     runLoggerThread,
   )
 where
 
 import Data.ByteString.Builder.Extra (flush)
 import RIO
+import qualified RIO.Text as Text
 import RIO.Time
-import Scrabble.Common
 import System.Console.ANSI
-import System.Envy (Var (..))
 
 -- | Options for initializing the logger interface.
 data LoggerOptions = LoggerOptions
@@ -36,34 +36,8 @@ data ColorOption
   | -- | Atomically color logs (i.e. if the program is run from a terminal).
     AutoColor
 
-instance Display ColorOption where
-  display = \case
-    AlwaysColor ->
-      "always"
-    NeverColor ->
-      "never"
-    AutoColor ->
-      "auto"
-
 -- | Queue for sending messages to the logger thread.
 type LoggerQueue = TBQueue Builder
-
--- TO-FIX: Orphan instance
-instance Var LogLevel where
-  toVar =
-    stringDisplay
-
-  fromVar =
-    logLevelFromString
-
--- TO-FIX: Orphan instance
-instance Display LogLevel where
-  display = \case
-    LevelDebug -> "debug"
-    LevelInfo -> "info"
-    LevelWarn -> "warn"
-    LevelError -> "error"
-    LevelOther level -> display level
 
 -- | Start the logger thread and return a custom
 -- logging function for sending it messages.
@@ -131,7 +105,7 @@ formatMessage ::
   IO Utf8Builder
 formatMessage ansi logLevel message = do
   let (levelName, levelColor) =
-        logLevelNameAndColor logLevel
+        logLevelTagAndColor logLevel
 
       formattedLevel =
         format ("[" <> levelName <> "]") [SetColor Foreground Dull levelColor]
@@ -164,24 +138,32 @@ timestampLength :: Int
 timestampLength =
   length $ formatTime defaultTimeLocale "%F %T.000000" (UTCTime (ModifiedJulianDay 0) 0)
 
--- | Get the name and color for displaying a log level.
-logLevelNameAndColor :: LogLevel -> (Utf8Builder, Color)
-logLevelNameAndColor = \case
+-- | Get the tag and color for displaying a log level.
+logLevelTagAndColor :: LogLevel -> (Utf8Builder, Color)
+logLevelTagAndColor = \case
   LevelDebug -> ("DEBUG", Green)
   LevelInfo -> ("INFO", Blue)
   LevelWarn -> ("WARN", Yellow)
   LevelError -> ("ERROR", Red)
   LevelOther level -> (display level, Magenta)
 
-logLevelFromString :: String -> Maybe LogLevel
-logLevelFromString = \case
+logLevelToName :: IsString s => LogLevel -> s
+logLevelToName = \case
+  LevelDebug -> "debug"
+  LevelInfo -> "info"
+  LevelWarn -> "warn"
+  LevelError -> "error"
+  LevelOther level -> fromString $ Text.unpack level
+
+logLevelFromName :: (Eq s, Monoid s, IsString s) => s -> Either s LogLevel
+logLevelFromName = \case
   "debug" ->
-    Just LevelDebug
+    Right LevelDebug
   "info" ->
-    Just LevelInfo
+    Right LevelInfo
   "warn" ->
-    Just LevelWarn
+    Right LevelWarn
   "error" ->
-    Just LevelError
-  _ ->
-    Nothing
+    Right LevelError
+  level ->
+    Left $ "Unknown log level '" <> level <> "'"

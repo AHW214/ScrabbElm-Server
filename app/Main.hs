@@ -41,41 +41,36 @@ main = do
               configServerPort
             } = config
 
-      case configAuthTokenSecret of
-        Nothing -> do
-          hPutBuilder stderr $ getUtf8Builder "no auth secret specified"
-          exitFailure
-        Just authTokenSecret -> do
-          let serverPort =
-                optionsPort `orDefault` configServerPort
+          serverPort =
+            optionsPort `orDefault` configServerPort
 
-              logLevel
-                | optionsQuiet = LevelError
-                | optionsVerbose = LevelDebug
-                | otherwise = optionsVerbosity `orDefault` configMinLogLevel
+          logLevel
+            | optionsQuiet = LevelError
+            | optionsVerbose = LevelDebug
+            | otherwise = optionsVerbosity `orDefault` configMinLogLevel
 
-              loggerOptions =
-                LoggerOptions
-                  { loggerHandle = stdout,
-                    loggerMinLevel = logLevel,
-                    loggerQueueCapacity = 256,
-                    loggerUseColor = optionsColor
-                  }
+          loggerOptions =
+            LoggerOptions
+              { loggerHandle = stdout,
+                loggerMinLevel = logLevel,
+                loggerQueueCapacity = 256,
+                loggerUseColor = optionsColor
+              }
 
-          clientCache <- atomically $ Auth.createCache
-          (logFunc, _) <- runLoggerThread loggerOptions
+      clientCache <- atomically $ Auth.createCache
+      (logFunc, _) <- runLoggerThread loggerOptions
 
-          let app =
-                App
-                  { appClientAuth =
-                      ClientAuth
-                        { authClientCache = clientCache,
-                          authExpireMilliseconds = configAuthExpireMilliseconds,
-                          authTokenSecret
-                        },
-                    appLogFunc = logFunc
-                  }
-           in runRIO app $ run serverPort
+      let app =
+            App
+              { appClientAuth =
+                  ClientAuth
+                    { authClientCache = clientCache,
+                      authExpireMilliseconds = configAuthExpireMilliseconds,
+                      authTokenSecret = configAuthTokenSecret
+                    },
+                appLogFunc = logFunc
+              }
+       in runRIO app $ run serverPort
 
 orDefault :: Maybe a -> a -> a
 orDefault = flip fromMaybe
