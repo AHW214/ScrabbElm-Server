@@ -7,7 +7,8 @@ where
 import CLI (Options (..), readOptions)
 import Config (Config (..), readConfig)
 import Control.Monad.Except (runExceptT) -- TODO: Integrate into loadConfig ?
-import RIO
+import Data.ByteString.Builder.Extra (flush)
+import RIO hiding (log)
 import Scrabble.App
 import Scrabble.Authentication.Client (ClientAuth (..))
 import qualified Scrabble.Authentication.Client as Auth
@@ -30,9 +31,8 @@ main = do
     readOptions
 
   runExceptT (readConfig optionsConfigFile) >>= \case
-    Left err -> do
-      hPutBuilder stderr $ getUtf8Builder $ display err -- TODO
-      exitFailure
+    Left err ->
+      exitWithReason $ display err
     Right config -> do
       let Config
             { configAuthExpireMilliseconds,
@@ -71,6 +71,15 @@ main = do
                 appLogFunc = logFunc
               }
        in runRIO app $ run serverPort
+
+exitWithReason :: forall m. MonadIO m => Utf8Builder -> m ()
+exitWithReason reason = do
+  log $ "Failed to start: " <> reason
+  exitFailure
+  where
+    log :: Utf8Builder -> m ()
+    log msg =
+      hPutBuilder stderr $ (getUtf8Builder msg) <> "\n" <> flush
 
 orDefault :: Maybe a -> a -> a
 orDefault = flip fromMaybe

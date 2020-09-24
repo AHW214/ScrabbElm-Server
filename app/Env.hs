@@ -15,7 +15,6 @@ where
 
 import qualified Configuration.Dotenv as Dotenv
 import Control.Monad.Except (throwError)
-import Data.Typeable (typeOf)
 import RIO
 import qualified RIO.Text as Text
 import Scrabble.Common (Try (..), tries)
@@ -43,18 +42,18 @@ data EnvError
 instance Display EnvError where
   display = \case
     EnvCannotDecode reason ->
-      "Cannot decode env: "
+      "Could not decode env: "
         <> display reason
     EnvFileCannotParse ex ->
-      "Cannot parse env file: "
+      "Could not parse env file: "
         <> display ex
     EnvFileCannotSet reason ->
-      "Cannot set vars from env file: "
+      "Could not set vars from env file: "
         <> display reason
     EnvFileDoesNotExist filePath ->
-      "Env file "
+      "Env file '"
         <> display filePath
-        <> " does not exist"
+        <> "' does not exist"
     EnvFileIOException ex ->
       "IO exception loading env file: "
         <> display ex
@@ -72,11 +71,7 @@ envOptional key =
   flip envOptionalWith key $ \val ->
     case fromVar val of
       Nothing ->
-        Left $
-          "Parse failure: could not parse variable "
-            <> key
-            <> " into type "
-            <> show (typeOf val)
+        Left "Probable type mismatch"
       Just parsed ->
         Right parsed
 
@@ -101,7 +96,11 @@ envWithBase varNotFound parseVar key =
     Just val ->
       case parseVar val of
         Left err ->
-          throwError err
+          throwError $
+            "Could not parse variable "
+              <> key
+              <> ": "
+              <> err
         Right parsed ->
           pure parsed
 
